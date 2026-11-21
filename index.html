@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Turbo Run">
+<meta name="theme-color" content="#1b1410">
+<title>Timos Turbo Run</title>
+<link rel="icon" href="assets/icon.png">
+<link rel="apple-touch-icon" href="assets/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game">
+  <canvas id="cv"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <div id="hScore">0</div>
+      <div id="hMeter" class="small">0 m</div>
+    </div>
+    <div class="hud-right">
+      <div id="hKK"><span class="kk-ico"></span><span id="hKKn">0</span></div>
+      <button id="btnPause" aria-label="Pause">II</button>
+    </div>
+    <div id="hEffects"></div>
+  </div>
+  <div id="banner" class="hidden"></div>
+
+  <!-- Titel -->
+  <div id="scrMenu" class="screen">
+    <div class="panel menu">
+      <h1><span>Timos</span><span class="turbo">Turbo Run</span></h1>
+      <img src="assets/timo-seite.png" alt="Timo" class="hero-img">
+      <div class="kk-total"><span class="kk-ico"></span> <span id="mKK">0</span> Kroketten</div>
+      <button class="btn big" id="btnStart">Los geht's!</button>
+      <div class="row">
+        <button class="btn" id="btnShop">Laden</button>
+        <button class="btn" id="btnBest">Bestenliste</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnHelp">Anleitung</button>
+        <button class="btn" id="btnSound">Ton: an</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anleitung -->
+  <div id="scrHelp" class="screen hidden">
+    <div class="panel scroll">
+      <h2>So geht's</h2>
+      <p>Dr. Spritz, der Tierarzt, will Timo impfen. Lauf so weit du kannst!</p>
+      <table class="help">
+        <tr><td>Wischen ↑ / Pfeil ↑ / Leertaste</td><td>Springen</td></tr>
+        <tr><td>Wischen ↓ / Pfeil ↓</td><td>Ducken &amp; rutschen</td></tr>
+        <tr><td>Wischen ← → / Pfeile</td><td>An Kreuzungen abbiegen, sonst Spur wechseln</td></tr>
+        <tr><td>P / Esc</td><td>Pause</td></tr>
+      </table>
+      <p>Verpasst du eine Kurve, rennt Timo gegen die Wand. Stolpert er zweimal kurz hintereinander, erwischt ihn der Tierarzt.</p>
+      <div class="pu-list">
+        <div><canvas data-spr="kk"></canvas> Hundekrokette: sammeln &amp; im Laden ausgeben</div>
+        <div><canvas data-spr="magnet"></canvas> Magnet: zieht Kroketten an</div>
+        <div><canvas data-spr="shield"></canvas> Schild: schützt vor einem Zusammenstoß</div>
+        <div><canvas data-spr="turbo"></canvas> Turbo-Leckerli: superschnell, biegt von selbst ab</div>
+        <div><canvas data-spr="fax"></canvas> Faxmaschine: Timo faxt dem Tierarzt eine Beschwerde. Der muss sie erst lesen, Timo ist kurz unverwundbar und Kroketten zählen doppelt</div>
+      </div>
+      <p>Level: Stadtpark → Bürgeramt → Sofa-Paradies → und wieder von vorn, nur schneller.</p>
+      <button class="btn" data-back>Zurück</button>
+    </div>
+  </div>
+
+  <!-- Laden -->
+  <div id="scrShop" class="screen hidden">
+    <div class="panel scroll">
+      <h2>Kroketten-Laden</h2>
+      <div class="kk-total"><span class="kk-ico"></span> <span id="sKK">0</span> Kroketten</div>
+      <div id="shopList"></div>
+      <button class="btn" data-back>Zurück</button>
+    </div>
+  </div>
+
+  <!-- Bestenliste -->
+  <div id="scrBest" class="screen hidden">
+    <div class="panel scroll">
+      <h2>Bestenliste</h2>
+      <ol id="bestList" class="best"></ol>
+      <button class="btn" data-back>Zurück</button>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="scrPause" class="screen hidden">
+    <div class="panel">
+      <h2>Pause</h2>
+      <button class="btn big" id="btnResume">Weiter</button>
+      <button class="btn" id="btnQuit">Aufgeben</button>
+    </div>
+  </div>
+
+  <!-- Game Over -->
+  <div id="scrOver" class="screen hidden">
+    <div class="panel scroll over">
+      <h2 class="red">Timo stellt eine Anzeige aus!</h2>
+      <div class="anzeige-wrap">
+        <img src="assets/timo-sitzend.png" alt="Timo" class="timo-sit">
+        <div class="anzeige">
+          <div class="az-head">STRAFANZEIGE</div>
+          <div><b>Gegen:</b> <span id="azGegen"></span></div>
+          <div><b>Tatort:</b> <span id="azOrt"></span></div>
+          <div><b>Vorwurf:</b> <span id="azGrund"></span></div>
+          <div class="az-sign">gez. Timo <span class="paw">🐾</span></div>
+          <div class="az-stamp">EINGEGANGEN</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div><span>Punkte</span><b id="oScore">0</b></div>
+        <div><span>Meter</span><b id="oMeter">0</b></div>
+        <div><span>Kroketten</span><b id="oKK">0</b></div>
+      </div>
+      <div id="newBest" class="hidden gold">Neuer Rekord!</div>
+      <form id="nameForm">
+        <label for="nameIn">In die Bestenliste eintragen:</label>
+        <div class="row">
+          <input id="nameIn" maxlength="12" autocomplete="off" placeholder="Dein Name">
+          <button class="btn" type="submit">Eintragen</button>
+        </div>
+      </form>
+      <ol id="overBest" class="best hidden"></ol>
+      <div class="row">
+        <button class="btn big" id="btnAgain">Nochmal</button>
+        <button class="btn" id="btnMenu">Menü</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="sprites.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
