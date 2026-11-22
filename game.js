@@ -31,8 +31,8 @@ const THEMES = [
     outdoor: false, fog: [70, 72, 64], ceil: [214, 214, 204], lamp: [255, 252, 220],
     floor: [[204, 202, 180], [158, 176, 146]], wall: { h: 3, low: [128, 156, 122], high: [232, 224, 196], line: [90, 110, 86] } },
   { key: 'sofa', name: 'Im Sofa-Paradies', sign: 'SOFA-PARADIES', signBg: '#e8572e', signFg: '#fff',
-    outdoor: false, fog: [52, 30, 22], ceil: [96, 62, 46], lamp: [255, 220, 150],
-    floor: [[170, 106, 58], [150, 90, 46]], wall: { h: 3, low: [120, 52, 40], high: [204, 82, 74], line: [176, 64, 60] } },
+    outdoor: false, fog: [96, 84, 72], ceil: [238, 234, 226], lamp: [255, 246, 200],
+    floor: [[214, 176, 128], [198, 160, 112]], wall: { h: 3, low: [112, 72, 44], high: [240, 232, 214], line: [226, 214, 192] } },
 ];
 
 const PU_INFO = {
@@ -110,9 +110,29 @@ function noiseBurst(dur, freq, vol) {
   const gn = actx.createGain(); gn.gain.value = vol;
   src.connect(f); f.connect(gn); gn.connect(actx.destination); src.start(t);
 }
+// Bellen: kurzer, heller Hundebeller (an die Vorlage angelehnt, selbst erzeugt)
+function barkOnce(pitch) {
+  if (save.mute || !actx) return;
+  const t = actx.currentTime, p = pitch || 1;
+  const out = actx.createGain(); out.gain.value = 0.9; out.connect(actx.destination);
+  // Stimme: Sägezahn mit schnellem Tonhöhen-Abfall durch zwei Formant-Filter
+  const o = actx.createOscillator(); o.type = 'sawtooth';
+  o.frequency.setValueAtTime(380 * p, t); o.frequency.linearRampToValueAtTime(620 * p, t + 0.025); o.frequency.exponentialRampToValueAtTime(240 * p, t + 0.16);
+  const f1 = actx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 900 * p; f1.Q.value = 3;
+  const f2 = actx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 2200 * p; f2.Q.value = 4;
+  const gv = actx.createGain(); gv.gain.setValueAtTime(0.0001, t); gv.gain.exponentialRampToValueAtTime(0.5, t + 0.012); gv.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  o.connect(f1); o.connect(f2); f1.connect(gv); f2.connect(gv); gv.connect(out);
+  o.start(t); o.stop(t + 0.2);
+  // Rauheit: gefiltertes Rauschen
+  const n = Math.floor(actx.sampleRate * 0.15), buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const nf = actx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 1500 * p; nf.Q.value = 1.5;
+  const gn = actx.createGain(); gn.gain.value = 0.35;
+  src.connect(nf); nf.connect(gn); gn.connect(out); src.start(t);
+}
 sfx.bark = function () {
-  const one = () => { beep(620, 0.13, 'square', 0.07, 230); noiseBurst(0.1, 1100, 0.25); };
-  one(); setTimeout(one, 190);
+  barkOnce(1); setTimeout(() => barkOnce(1.08), 230);
 };
 
 // ---------- Musik (selbst komponierte Chiptune-Schleifen) ----------
@@ -189,6 +209,8 @@ function makeSeg(sx, sz, dirIdx, startDist, opts) {
   return seg;
 }
 
+const SOFA_COLS = [[20, 160, 170], [220, 40, 100], [50, 90, 220], [245, 140, 20], [120, 60, 190], [40, 170, 80]];
+const SOFA_PRICES = ['199€', '299€', '499€', '99€', '1.299€', '799€'];
 const OB = { // Hindernis-Arten pro Thema
   park: {
     low: { name: 'Hecke', h: 0.62, c: [70, 150, 60], top: [110, 190, 90], kind: 'hedge' },
@@ -205,8 +227,8 @@ const OB = { // Hindernis-Arten pro Thema
   sofa: {
     low: { name: 'Kissenberg', h: 0.6, c: [240, 200, 80], top: [250, 230, 140], kind: 'pillows' },
     high: { name: 'Teppichrolle', y0: 0.95, c: [150, 60, 120], top: [190, 90, 150], kind: 'rug' },
-    block: [{ name: 'Sofa', h: 1.05, c: [70, 120, 200], top: [100, 150, 230], kind: 'sofa', w: 1.1 },
-            { name: 'Sessel', h: 1.0, c: [200, 120, 50], top: [230, 150, 80], kind: 'sofa', w: 0.95 }],
+    block: [{ name: 'Sofa', h: 1.05, c: [20, 160, 170], top: [60, 200, 205], kind: 'sofa', w: 1.1 },
+            { name: 'Sessel', h: 1.0, c: [220, 40, 100], top: [245, 90, 140], kind: 'sofa', w: 0.95 }],
   },
 };
 
@@ -224,6 +246,21 @@ function populate(seg, first) {
   while (a < end) {
     const r = Math.random();
     const gapAfter = Math.max(expSpeed * 1.3, lerp(18, 11, diff)) + rnd(0, 7);
+    if (!first && r >= 0.42 && r < 0.53 && a + 14 < end) { // Kipp-Abschnitt: Boden nur auf einer Seite
+      const s1 = pick([-1, 1]), len = 11;
+      seg.obs.push({ type: 'narrow', a0: a, a1: a + len, side: s1 });
+      coinLine(seg, a + 1, s1, 8, 0.45);
+      if (a + 2 * len + 18 < end && Math.random() < 0.6) { const sp = Math.max(8, expSpeed * 0.8); seg.obs.push({ type: 'narrow', a0: a + len + sp, a1: a + 2 * len + sp, side: -s1 }); coinLine(seg, a + len + sp + 1, -s1, 8, 0.45); a += len + sp; }
+      a += len + gapAfter;
+      continue;
+    }
+    if (!first && r >= 0.53 && r < 0.64) { // Loch / Schlucht -> springen
+      const len = lerp(1.8, 2.6, diff);
+      seg.obs.push({ type: 'gap', a0: a, a1: a + len });
+      coinArc(seg, a + len / 2, rint(-1, 1));
+      a += gapAfter;
+      continue;
+    }
     if (r < 0.22) { // tiefes Hindernis über die ganze Breite -> springen
       const o = ob.low;
       seg.obs.push({ type: 'low', a0: a, a1: a + 0.7, h: o.h, def: o });
@@ -238,7 +275,8 @@ function populate(seg, first) {
       for (let i = 0; i < n; i++) {
         const o = pick(ob.block);
         const w = o.w || 1.05;
-        seg.obs.push({ type: 'block', a0: a, a1: a + (o.kind === 'bench' || o.kind === 'chairs' ? 0.7 : 1.0), lane: lanes[i], b: lanes[i] * LANE, w, h: o.h, def: o });
+        seg.obs.push({ type: 'block', a0: a, a1: a + (o.kind === 'bench' || o.kind === 'chairs' ? 0.7 : 1.0), lane: lanes[i], b: lanes[i] * LANE, w, h: o.h, def: o,
+          c: o.kind === 'sofa' ? pick(SOFA_COLS) : null, price: o.kind === 'sofa' ? pick(SOFA_PRICES) : null });
       }
       coinLine(seg, a - 6, lanes[2], 8, 0.45);
     } else { // nur Kroketten
@@ -301,8 +339,8 @@ function decorate(seg) {
       // Keine Deko mehr auf dem Laufweg (Pflanzen usw. sahen wie Hindernisse aus)
       if (s > 0) for (let a = from + rnd(6, 14); a < to - 4; a += rnd(18, 30)) seg.deco.push({ hang: pick(T === 'amt' ? HANG_AMT : HANG_SOFA), a });
       // Wandschilder / Bilder
-      for (let a = from + rnd(1, 4); a < to - 1; a += rnd(5, 8)) {
-        seg.deco.push({ poster: true, side: s, a, w: rnd(0.8, 1.4), kind: T === 'amt' ? pick(['door', 'poster', 'poster', 'board']) : pick(['frame', 'frame', 'sale']), col: pick(T === 'amt' ? [[90, 130, 190], [220, 200, 120], [200, 90, 80], [120, 170, 120]] : [[240, 200, 80], [90, 150, 210], [240, 240, 220], [130, 200, 140]]) });
+      for (let a = from + rnd(1, 4); a < to - 1; a += (T === 'sofa' ? rnd(2.6, 3.6) : rnd(5, 8))) {
+        seg.deco.push({ poster: true, side: s, a, w: rnd(0.8, 1.4), kind: T === 'amt' ? pick(['door', 'poster', 'poster', 'board']) : pick(['display', 'display', 'shelf', 'shelf', 'sale', 'frame']), col: pick(T === 'amt' ? [[90, 130, 190], [220, 200, 120], [200, 90, 80], [120, 170, 120]] : [[240, 200, 80], [90, 150, 210], [240, 240, 220], [130, 200, 140]]) });
       }
     }
   }
@@ -445,6 +483,7 @@ function update(dt) {
   // Abbiegen
   const s = r.cur;
   if (r.eff.turbo > 0 && !r.turnQ && r.pa > s.L - HW - 4) r.turnQ = s.exits === 'T' ? pick(['L', 'R']) : s.exits;
+  if (r.eff.turbo > 0) for (const o of s.obs) if (o.type === 'narrow' && o.a0 - r.pa < 6 && o.a1 > r.pa) { r.lane = o.side; break; }
   if (r.turnQ && r.pa >= s.L - 0.25) doTurn();
   else if (r.pa > s.L + HW - 0.55) { die('wall'); return; }
 
@@ -515,6 +554,17 @@ function collide(prevA) {
   const pa0 = prevA - 0.3, pa1 = r.pa + 0.3;
   for (const o of s.obs) {
     if (o.hit || o.gone || o.a1 < pa0 || o.a0 > pa1) continue;
+    if (o.type === 'gap' || o.type === 'narrow') {
+      const inside = r.pa > o.a0 + 0.3 && r.pa < o.a1 - 0.3;
+      const overHole = o.type === 'gap' || Math.abs(r.pb - o.side * LANE) > 0.75;
+      if (inside && overHole && r.py <= 0.02) {
+        if (r.tut && r.tutStep < TUT.length) continue;
+        if (r.eff.fax > 0 || r.eff.turbo > 0) { if (o.type === 'gap') { r.vy = 6; r.py = 0.03; } else { r.lane = o.side; r.pb = o.side * LANE; } }
+        else if (r.eff.shield > 0) { r.eff.shield = 0; sfx.hit(); if (o.type === 'gap') { r.vy = 8; r.py = 0.03; } else { r.lane = o.side; r.pb = o.side * LANE; } }
+        else { die('fall', o); return; }
+      }
+      continue;
+    }
     if (o.type === 'low') { if (r.py < o.h - 0.05) hitBy(o); }
     else if (o.type === 'high') { if (!(r.slideT > 0 && r.py < 0.3)) hitBy(o); }
     else if (o.type === 'block') { if (Math.abs(r.pb - o.b) < (o.w * 0.5 + 0.3) && r.py < o.h - 0.05) hitBy(o); }
@@ -557,13 +607,15 @@ function activate(k) {
 function die(cause, o) {
   const r = run;
   r.dying = 1.6; r.deathCause = cause; r.deathObs = o || r.lastObs;
-  r.shake = 1.2; sfx.hit();
+  r.shake = 1.2;
+  if (cause === 'fall') { r.vy = 0; r.shake = 0.4; beep(700, 0.9, 'triangle', 0.08, 90); } else sfx.hit();
   if (cause === 'caught') { r.vetSay = 'Erwischt!'; r.vetSayT = 3; }
 }
 function updateDying(dt) {
   const r = run;
   r.dying -= dt;
   if (r.deathCause === 'caught') { r.vetGap = lerp(r.vetGap, 0.25, dt * 4); r.vetB = lerp(r.vetB, r.pb, dt * 4); }
+  else if (r.deathCause === 'fall') { r.vy -= 18 * dt; r.py += r.vy * dt; r.pa += dt * 2; r.vetGap = lerp(r.vetGap, 1.4, dt * 2); }
   else { r.vetGap = lerp(r.vetGap, 1.4, dt * 2); if (r.py > 0 || r.vy > 0) { r.vy -= 24 * dt; r.py = Math.max(0, r.py + r.vy * dt); } }
   if (r.dying <= 0) gameOver();
 }
@@ -611,7 +663,7 @@ function clipNear(pts) {
   return out;
 }
 
-let floorQ = [], objQ = [];
+let floorQ = [], objQ = [], pitQ = [];
 function fogT(f, theme) { return clamp((f - 18) / (VIEW - 18), 0, 1); }
 // Viereck in Segment-Koordinaten: Punkte [a,b,y]
 function quad(seg, pts, color, list, depthBias) {
@@ -712,6 +764,28 @@ function renderSeg(seg, isPrev, isExit) {
       if (lampOn) quad(seg, [[a0 + 0.4, -0.5, 2.99], [a1 - 0.4, -0.5, 2.99], [a1 - 0.4, 0.5, 2.99], [a0 + 0.4, 0.5, 2.99]], T.lamp, floorQ, 49);
     }
   }
+  // Löcher und Kipp-Abschnitte
+  for (const o of seg.obs) {
+    if (o.type !== 'gap' && o.type !== 'narrow') continue;
+    const segsB = o.type === 'gap' ? [[-HW, HW]] : (o.side < 0 ? [[-HW + LANE + 0.05, HW]] : [[-HW, HW - LANE - 0.05]]);
+    for (const [b0, b1] of segsB) {
+      // dunkle Tiefe + sichtbare Rückwand (nur so tief, dass sie im Loch bleibt)
+      const cl2 = camLocal(seg), fd = Math.max(0.5, o.a1 - cl2.a), len = o.a1 - o.a0;
+      const D = Math.min(1.6, cam.y * len / Math.max(0.3, fd - len)) * 0.95;
+      quad(seg, [[o.a0, b0, 0.002], [o.a1, b0, 0.002], [o.a1, b1, 0.002], [o.a0, b1, 0.002]], [14, 10, 8], pitQ);
+      if (cl2.a < o.a1) quad(seg, [[o.a1, b0, 0.003], [o.a1, b1, 0.003], [o.a1, b1, -D], [o.a1, b0, -D]], T.outdoor ? [110, 74, 40] : [70, 60, 56], pitQ, -0.5);
+      // Warnstreifen an der Kante
+      const n = Math.max(2, Math.round((b1 - b0) / 0.3));
+      for (let k = 0; k < n; k++) {
+        const x0 = b0 + k * (b1 - b0) / n, x1 = x0 + (b1 - b0) / n;
+        quad(seg, [[o.a0 - 0.28, x0, 0.004], [o.a0, x0, 0.004], [o.a0, x1, 0.004], [o.a0 - 0.28, x1, 0.004]], k & 1 ? [30, 30, 30] : [250, 200, 30], pitQ, -1);
+      }
+      if (o.type === 'narrow') { // Längskante zur begehbaren Seite
+        const eb = o.side < 0 ? b0 : b1;
+        quad(seg, [[o.a0, eb - 0.06, 0.004], [o.a1, eb - 0.06, 0.004], [o.a1, eb + 0.06, 0.004], [o.a0, eb + 0.06, 0.004]], [250, 200, 30], pitQ, -1);
+      }
+    }
+  }
   // Wände
   const hasL = seg.exits === 'L' || seg.exits === 'T', hasR = seg.exits === 'R' || seg.exits === 'T';
   const wallFrom = aFrom;
@@ -738,7 +812,7 @@ function renderSeg(seg, isPrev, isExit) {
   }
   if (seg.gate) gate(seg);
   // Hindernisse
-  for (const o of seg.obs) if (!o.gone) obstacle(seg, o);
+  for (const o of seg.obs) if (!o.gone && o.type !== 'gap' && o.type !== 'narrow') obstacle(seg, o);
   // Kroketten
   const spin = Math.abs(Math.cos(run.time * 5));
   for (const c of seg.coins) if (!c.got) sprite(seg, c.a, c.b, c.y - 0.15, 0.32, SPR.kk, objQ, { sx: 0.35 + 0.65 * spin });
@@ -761,6 +835,7 @@ function wallPiece(seg, s, a0, a1, cl) {
   } else {
     quad(seg, [[a0, b, 0], [a1, b, 0], [a1, b, 1], [a0, b, 1]], T.wall.low, objQ, 0.3);
     quad(seg, [[a0, b, 1], [a1, b, 1], [a1, b, 3], [a0, b, 3]], (T.key === 'sofa' && (Math.floor(a0 / 2) & 1)) ? T.wall.line : T.wall.high, objQ, 0.3);
+    if (T.key === 'sofa') quad(seg, [[a0, b, 2.45], [a1, b, 2.45], [a1, b, 2.75], [a0, b, 2.75]], [214, 40, 52], objQ, 0.25);
   }
 }
 function endWall(seg, cl) {
@@ -788,6 +863,27 @@ function poster(seg, d) {
   if (d.kind === 'board') { y0 = 1.2; y1 = 2.0; col = [60, 70, 60]; }
   if (d.kind === 'frame') { quad(seg, [[a0 - 0.08, b, y0 - 0.08], [a1 + 0.08, b, y0 - 0.08], [a1 + 0.08, b, y1 + 0.08], [a0 - 0.08, b, y1 + 0.08]], [200, 160, 60], objQ, 0.2); }
   if (d.kind === 'sale') { col = [255, 230, 60]; y0 = 1.5; y1 = 2.3; }
+  if (d.kind === 'display') { // Schaufenster mit Ausstellungs-Sofa
+    const w2 = 2.2, sc = SOFA_COLS[Math.floor(d.a * 7) % SOFA_COLS.length];
+    quad(seg, [[a0, b, 0.3], [a0 + w2, b, 0.3], [a0 + w2, b, 2.3], [a0, b, 2.3]], [255, 244, 214], objQ, 0.15);
+    quad(seg, [[a0 + 0.3, b, 0.45], [a0 + w2 - 0.3, b, 0.45], [a0 + w2 - 0.3, b, 0.85], [a0 + 0.3, b, 0.85]], sc, objQ, 0.05);
+    quad(seg, [[a0 + 0.3, b, 0.85], [a0 + w2 - 0.3, b, 0.85], [a0 + w2 - 0.3, b, 1.35], [a0 + 0.3, b, 1.35]], shade(sc, 0.8), objQ, 0.06);
+    quad(seg, [[a0 + 0.15, b, 0.45], [a0 + 0.35, b, 0.45], [a0 + 0.35, b, 1.05], [a0 + 0.15, b, 1.05]], shade(sc, 0.7), objQ, 0.04);
+    quad(seg, [[a0 + w2 - 0.35, b, 0.45], [a0 + w2 - 0.15, b, 0.45], [a0 + w2 - 0.15, b, 1.05], [a0 + w2 - 0.35, b, 1.05]], shade(sc, 0.7), objQ, 0.04);
+    quad(seg, [[a0 + w2 - 0.7, b, 1.6], [a0 + w2 - 0.2, b, 1.6], [a0 + w2 - 0.2, b, 1.9], [a0 + w2 - 0.7, b, 1.9]], [255, 226, 58], objQ, 0.04);
+    quad(seg, [[a0 + w2 - 0.62, b, 1.68], [a0 + w2 - 0.28, b, 1.68], [a0 + w2 - 0.28, b, 1.8], [a0 + w2 - 0.62, b, 1.8]], [200, 30, 30], objQ, 0.03);
+    return;
+  }
+  if (d.kind === 'shelf') {
+    const w2 = Math.max(d.w, 1.3);
+    quad(seg, [[a0, b, 0.2], [a0 + w2, b, 0.2], [a0 + w2, b, 2.4], [a0, b, 2.4]], [130, 86, 50], objQ, 0.15);
+    for (let row = 0; row < 3; row++) for (let k = 0; k < 3; k++) {
+      const c = SOFA_COLS[(row * 3 + k + Math.floor(d.a)) % SOFA_COLS.length];
+      const x0 = a0 + 0.08 + k * (w2 - 0.16) / 3, x1 = x0 + (w2 - 0.16) / 3 - 0.06, yy = 0.35 + row * 0.7;
+      quad(seg, [[x0, b, yy], [x1, b, yy], [x1, b, yy + 0.45], [x0, b, yy + 0.45]], c, objQ, 0.05);
+    }
+    return;
+  }
   quad(seg, [[a0, b, y0], [a1, b, y0], [a1, b, y1], [a0, b, y1]], col, objQ, 0.1);
   if (d.kind === 'door') quad(seg, [[a0 + 0.1, b, 1.5], [a1 - 0.1, b, 1.5], [a1 - 0.1, b, 2.0], [a0 + 0.1, b, 2.0]], [200, 230, 255], objQ, 0.05);
   if (d.kind === 'sale') quad(seg, [[a0 + 0.1, b, 1.75], [a1 - 0.1, b, 1.75], [a1 - 0.1, b, 2.0], [a0 + 0.1, b, 2.0]], [230, 40, 40], objQ, 0.05);
@@ -827,10 +923,19 @@ function obstacle(seg, o) {
       box(seg, o.a0 + 0.1, o.a0 + 0.2, b0 + 0.05, b0 + 0.15, 0, 0.35, [50, 50, 50], null, objQ);
       box(seg, o.a0 + 0.1, o.a0 + 0.2, b1 - 0.15, b1 - 0.05, 0, 0.35, [50, 50, 50], null, objQ);
     } else if (d.kind === 'sofa') {
-      box(seg, o.a0, o.a1, b0, b1, 0, 0.5, d.c, d.top, objQ);
-      box(seg, o.a1 - 0.3, o.a1, b0, b1, 0.5, o.h, shade(d.c, 0.9), d.top, objQ);
-      box(seg, o.a0, o.a1 - 0.3, b0, b0 + 0.18, 0.5, 0.75, shade(d.c, 0.85), d.top, objQ);
-      box(seg, o.a0, o.a1 - 0.3, b1 - 0.18, b1, 0.5, 0.75, shade(d.c, 0.85), d.top, objQ);
+      const sc = o.c || d.c, st = [Math.min(255, sc[0] + 50), Math.min(255, sc[1] + 50), Math.min(255, sc[2] + 50)];
+      box(seg, o.a0 + 0.1, o.a0 + 0.2, b0 + 0.1, b0 + 0.2, 0, 0.12, [40, 30, 20], null, objQ);
+      box(seg, o.a0 + 0.1, o.a0 + 0.2, b1 - 0.2, b1 - 0.1, 0, 0.12, [40, 30, 20], null, objQ);
+      box(seg, o.a0, o.a1, b0, b1, 0.12, 0.5, sc, st, objQ);
+      box(seg, o.a1 - 0.3, o.a1, b0, b1, 0.5, o.h, shade(sc, 0.85), st, objQ);
+      box(seg, o.a0, o.a1 - 0.3, b0, b0 + 0.18, 0.5, 0.75, shade(sc, 0.8), st, objQ);
+      box(seg, o.a0, o.a1 - 0.3, b1 - 0.18, b1, 0.5, 0.75, shade(sc, 0.8), st, objQ);
+      box(seg, o.a1 - 0.45, o.a1 - 0.3, o.b - 0.25, o.b + 0.05, 0.5, 0.8, [250, 230, 120], [255, 245, 170], objQ);
+      if (o.price) {
+        const key = 'price' + o.price;
+        if (!signCache[key]) signCache[key] = makeSign(o.price, '#ffe23a', '#c02020');
+        sprite(seg, o.a0, o.b, o.h + 0.05, 0.28, signCache[key], objQ, { bias: -0.3 });
+      }
     } else if (d.kind === 'chairs') {
       box(seg, o.a0, o.a1, b0, b1, 0.38, 0.48, d.c, d.top, objQ);
       box(seg, o.a1 - 0.1, o.a1, b0, b1, 0.48, o.h, d.c, d.top, objQ);
@@ -876,7 +981,7 @@ function render() {
   const r = run;
   const T = r.cur.theme;
   drawBackground(r.prev && r.pa < HW + 2 ? r.prev.theme : T);
-  floorQ = []; objQ = [];
+  floorQ = []; objQ = []; pitQ = [];
   r.firstSeg = r.firstSeg || r.cur;
   if (r.prev) renderSeg(r.prev, true, false);
   renderSeg(r.cur, false, false);
@@ -887,9 +992,11 @@ function render() {
   }
   floorQ.sort((a, b) => b.d - a.d);
   for (const q of floorQ) drawPoly(q);
+  pitQ.sort((a, b) => b.d - a.d);
+  for (const q of pitQ) drawPoly(q);
   // Schatten
   const sp = toCamSeg(r.cur, r.pa, r.pb, 0);
-  if (sp[2] > NEAR) {
+  if (sp[2] > NEAR && r.deathCause !== 'fall') {
     const [sx, sy] = proj(sp);
     const sc = focal / sp[2];
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -900,7 +1007,7 @@ function render() {
   let img = r.py > 0.05 ? SPR.timoJ : (Math.floor(r.animT * (r.speed * 0.9)) & 1 ? SPR.timoA : SPR.timoB);
   const dh = SPR.timoReal ? (sliding ? 0.85 : 1.55) : (sliding ? 0.75 : 1.3);
   const [tx, tz] = segWorld(r.cur, r.pa, r.pb);
-  spriteW(tx, tz, r.py, dh, img, objQ, { sx: sliding ? (SPR.timoReal ? 1.5 : 1.7) : 1, bias: -0.8 });
+  spriteW(tx, tz, r.py, dh, img, objQ, { sx: sliding ? (SPR.timoReal ? 1.5 : 1.7) : 1, bias: -0.8, alpha: r.deathCause === 'fall' ? clamp(1 + r.py * 0.6, 0, 1) : undefined });
   // Tierarzt
   const p = run;
   if (p.vetGap < 5) {
@@ -935,6 +1042,15 @@ function render() {
     const vp = toCamSeg(r.cur, r.pa - r.vetGap, r.vetB, 1.9);
     if (vp[2] > NEAR) { const [bx, by] = proj(vp); bubble(r.vetSay, bx, by); }
   }
+  // Kipp-Hinweis vor Abschnitten mit nur einer Bodenseite
+  if (!r.dying) for (const o of r.cur.obs) {
+    if (o.type !== 'narrow') continue;
+    const d = o.a0 - r.pa;
+    if (d > -2 && d < 16 && Math.abs(r.pb - o.side * LANE) > 0.4) {
+      if (Math.floor(r.time * 5) & 1) bigHint((o.side < 0 ? '⬅ ' : '') + (tiltOn() ? 'KIPPEN!' : 'WISCHEN!') + (o.side > 0 ? ' ➡' : ''));
+      break;
+    }
+  }
   // Abbiege-Hinweis
   const s = r.cur;
   if (!r.dying && r.pa > s.L - HW - (7 + r.speed * 0.3) && !r.turnQ) arrowHint(s.exits);
@@ -956,6 +1072,14 @@ function bubble(text, x, y) {
   ctx.fillStyle = '#000'; ctx.fillRect(bx - 1, by - 1, w + 2, h + 2);
   ctx.fillStyle = '#fff'; ctx.fillRect(bx, by, w, h);
   ctx.fillStyle = '#000'; ctx.textBaseline = 'top'; ctx.fillText(text, bx + 4, by + 3);
+}
+function bigHint(text) {
+  ctx.font = '8px "Press Start 2P", monospace';
+  const w = Math.ceil(ctx.measureText(text).width) + 12, h = 16;
+  const x = Math.round(W / 2 - w / 2), y = Math.round(C.oy + (H - C.oy) * 0.12);
+  ctx.fillStyle = '#000'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  ctx.fillStyle = '#ff8a1f'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#fff'; ctx.textBaseline = 'top'; ctx.fillText(text, x + 6, y + 4);
 }
 function arrowHint(ex) {
   const blink = Math.floor(run.time * 6) & 1;
@@ -1034,6 +1158,11 @@ function quitGame() { music.stop(); $('tut').classList.add('hidden'); state = 'm
 const PLACES = { park: 'Stadtpark', amt: 'Bürgeramt, Wartebereich', sofa: 'Sofa-Paradies, Abteilung Polster' };
 function anzeigeText() {
   const r = run, c = r.deathCause, o = r.deathObs, place = PLACES[r.cur.theme.key];
+  if (c === 'fall') {
+    const t = r.cur.theme.key;
+    return { gegen: t === 'park' ? 'Stadtverwaltung, Tiefbauamt' : t === 'amt' ? 'Bürgeramt (Hausmeister)' : 'Sofa-Paradies GmbH',
+      ort: place, grund: pick(['Loch im Boden nicht abgesichert! Timo ist reingeplumpst.', 'Fehlendes Warnschild vor der Grube.', 'Boden einfach weg. So geht das nicht!']) };
+  }
   if (c === 'wall') {
     const t = r.cur.theme.key;
     return { gegen: t === 'park' ? 'Stadtgärtnerei' : t === 'amt' ? 'Bürgeramt (Hausmeister)' : 'Sofa-Paradies GmbH',
@@ -1138,7 +1267,7 @@ function renderShop() {
     else { price = it.price; lvl = '<span class="lvl">Vorrat: ' + save.inv[it.id] + '</span>'; }
     can = price != null && save.kk >= price;
     return '<div class="shop-item"><canvas data-spr="' + (it.spr || it.id) + '"></canvas><div class="info"><b>' + it.title + '</b><small>' + it.desc(it.id) + '</small>' + lvl + '</div>' +
-      '<button class="btn" data-buy="' + it.id + '"' + (can ? '' : ' disabled') + '>' + (price == null ? 'MAX' : price + ' 🦴') + '</button></div>';
+      '<button class="btn" data-buy="' + it.id + '"' + (can ? '' : ' disabled') + '>' + (price == null ? 'MAX' : price + ' <span class="kk-ico"></span>') + '</button></div>';
   }).join('');
   paintCanvases($('shopList'));
 }
@@ -1161,7 +1290,8 @@ $('btnStart').onclick = () => startGame();
 $('btnAgain').onclick = () => startGame();
 $('btnTut').onclick = () => startGame(true);
 $('btnTilt').onclick = () => { save.tilt = !save.tilt; persist(); if (save.tilt) requestTilt(); openMenu(); };
-$('menuTimo').onclick = () => { audioUnlock(); timoBark('menu'); };
+$('heroWrap').onclick = () => { audioUnlock(); timoBark('menu'); };
+setInterval(() => { if (!$('scrMenu').classList.contains('hidden')) $('heroWrap').classList.toggle('front'); }, 3500);
 $('overTimo').onclick = () => { audioUnlock(); timoBark('over'); };
 $('btnMenu').onclick = () => { state = 'menu'; run = null; openMenu(); };
 $('btnShop').onclick = () => { renderShop(); show('scrShop'); };
@@ -1216,7 +1346,8 @@ window.addEventListener('deviceorientation', e => {
 
 // ---------- Timo bellt ----------
 function timoBark(where) {
-  const img = $(where === 'menu' ? 'menuTimo' : 'overTimo'), w = $(where === 'menu' ? 'menuWuff' : 'overWuff');
+  if (where === 'menu') $('heroWrap').classList.add('front');
+  const img = $(where === 'menu' ? 'menuTimoFront' : 'overTimo'), w = $(where === 'menu' ? 'menuWuff' : 'overWuff');
   if (!img || img.offsetParent === null) return;
   img.classList.remove('bark'); void img.offsetWidth; img.classList.add('bark');
   w.textContent = pick(['WUFF!', 'WUFF WUFF!', 'WAU!', 'GRRR… WUFF!']);
@@ -1246,7 +1377,7 @@ function buildTimoFrames(img) {
 
 function init() {
   buildSprites();
-  const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=2';
+  const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=4';
   const icoURL = (() => { const c = document.createElement('canvas'); c.width = SPR.kk.width * 2; c.height = SPR.kk.height * 2; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(SPR.kk, 0, 0, c.width, c.height); return c.toDataURL(); })();
   const st = document.createElement('style'); st.textContent = '.kk-ico{background-image:url(' + icoURL + ')!important}'; document.head.appendChild(st);
   paintCanvases(document);
