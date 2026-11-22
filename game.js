@@ -581,7 +581,10 @@ function update(dt) {
   const tg = close ? (r.vetIntro > 0 ? 2.2 - r.vetIntro * 0.2 : 1.5) : (inTut ? 9 : 6);
   if (r.eff.fax > 0 || r.eff.turbo > 0) { r.vetGap = lerp(r.vetGap, 12, dt * 1.5); r.stumbleT = 99; r.vetIntro = 0; }
   else r.vetGap = lerp(r.vetGap, tg, dt * (close ? 3 : 0.8));
-  const vb = r.pb > 0.3 ? r.pb - 1.3 : r.pb + 1.3;
+  let vb = r.pb > 0.3 ? r.pb - 1.3 : r.pb + 1.3;
+  const va = r.pa - r.vetGap;
+  for (const o of r.cur.obs) if (o.type === 'narrow' && va > o.a0 - 3 && va < o.a1 + 1) vb = o.side * LANE;
+  vb = clamp(vb, -HW + 0.3, HW - 0.3);
   r.vetB = lerp(r.vetB, vb, dt * 4);
 
   // Level
@@ -863,17 +866,23 @@ function renderSeg(seg, isPrev, isExit) {
   // Löcher und Kipp-Abschnitte
   for (const o of seg.obs) {
     if (o.type !== 'gap' && o.type !== 'narrow') continue;
+    // Was hinter Timo liegt, wird nicht mehr gezeichnet (sonst große braune Flächen vor der Kamera)
+    if (isPrev) continue;
+    const cutA = seg === run.cur ? run.pa - 0.6 : -Infinity;
+    if (o.a1 <= cutA) continue;
+    const A0 = Math.max(o.a0, cutA), A1 = o.a1;
     const segsB = o.type === 'gap' ? [[-HW, HW]] : (o.side < 0 ? [[-HW + LANE + 0.05, HW]] : [[-HW, HW - LANE - 0.05]]);
     for (const [b0, b1] of segsB) {
       // dunkle Tiefe + sichtbare Rückwand (nur so tief, dass sie im Loch bleibt)
-      const cl2 = camLocal(seg), fd = Math.max(0.5, o.a1 - cl2.a), len = o.a1 - o.a0;
-      const D = Math.min(1.6, cam.y * len / Math.max(0.3, fd - len)) * 0.95;
+      const cl2 = camLocal(seg), len = o.a1 - o.a0;
+      const showWall = o.type === 'gap' && A0 === o.a0 && cl2.a < o.a0 - 0.5 && Math.abs(cl2.b) < HW + 1;
+      const D = showWall ? Math.min(1.2, (C.y - elev(seg, o.a0)) * len / Math.max(0.5, o.a0 - cl2.a)) * 0.9 : 0;
       // Erdloch: dunkle Tiefe, Erdwand mit Schichten, unregelmäßiger Erdrand
       const seed = Math.floor(o.a0 * 13.7);
       const jag = k => 0.12 + 0.12 * (((seed + k * 37) % 7) / 6);
-      quad(seg, [[o.a0, b0, 0.002], [o.a1, b0, 0.002], [o.a1, b1, 0.002], [o.a0, b1, 0.002]], [84, 52, 26], pitQ);
-      quad(seg, [[o.a0 + 0.25, b0 + 0.2, 0.0025], [o.a1 - 0.25, b0 + 0.2, 0.0025], [o.a1 - 0.25, b1 - 0.2, 0.0025], [o.a0 + 0.25, b1 - 0.2, 0.0025]], [62, 38, 18], pitQ);
-      if (cl2.a < o.a1) {
+      quad(seg, [[A0, b0, 0.002], [A1, b0, 0.002], [A1, b1, 0.002], [A0, b1, 0.002]], [84, 52, 26], pitQ);
+      if (A1 - A0 > 0.6) quad(seg, [[A0 + 0.25, b0 + 0.2, 0.0025], [A1 - 0.25, b0 + 0.2, 0.0025], [A1 - 0.25, b1 - 0.2, 0.0025], [A0 + 0.25, b1 - 0.2, 0.0025]], [62, 38, 18], pitQ);
+      if (showWall && D > 0.05) {
         quad(seg, [[o.a1, b0, 0.003], [o.a1, b1, 0.003], [o.a1, b1, -D], [o.a1, b0, -D]], [124, 82, 44], pitQ, -0.5);
         quad(seg, [[o.a1 - 0.001, b0, -D * 0.35], [o.a1 - 0.001, b1, -D * 0.35], [o.a1 - 0.001, b1, -D * 0.55], [o.a1 - 0.001, b0, -D * 0.55]], [100, 64, 32], pitQ, -0.6);
         quad(seg, [[o.a1 - 0.001, b0, -D * 0.75], [o.a1 - 0.001, b1, -D * 0.75], [o.a1 - 0.001, b1, -D], [o.a1 - 0.001, b0, -D]], [80, 50, 24], pitQ, -0.6);
@@ -881,18 +890,18 @@ function renderSeg(seg, isPrev, isExit) {
       const n = Math.max(3, Math.round((b1 - b0) / 0.35));
       for (let k = 0; k < n; k++) {
         const x0 = b0 + k * (b1 - b0) / n, x1 = x0 + (b1 - b0) / n;
-        quad(seg, [[o.a0 - jag(k), x0, 0.004], [o.a0 + 0.06, x0, 0.004], [o.a0 + 0.06, x1, 0.004], [o.a0 - jag(k + 3), x1, 0.004]], k & 1 ? [120, 78, 40] : [140, 94, 52], pitQ, -1);
+        if (A0 === o.a0) quad(seg, [[o.a0 - jag(k), x0, 0.004], [o.a0 + 0.06, x0, 0.004], [o.a0 + 0.06, x1, 0.004], [o.a0 - jag(k + 3), x1, 0.004]], k & 1 ? [120, 78, 40] : [140, 94, 52], pitQ, -1);
         quad(seg, [[o.a1 - 0.06, x0, 0.004], [o.a1 + jag(k + 1), x0, 0.004], [o.a1 + jag(k + 5), x1, 0.004], [o.a1 - 0.06, x1, 0.004]], k & 1 ? [140, 94, 52] : [120, 78, 40], pitQ, -1);
       }
       if (o.type === 'narrow') { // Erdkante zur begehbaren Seite
         const eb = o.side < 0 ? b0 : b1, sgn = o.side < 0 ? 1 : -1;
-        for (let a = o.a0; a < o.a1; a += 0.8) {
+        for (let a = A0; a < o.a1; a += 0.8) {
           const j = jag(Math.floor(a * 3));
           quad(seg, [[a, eb - 0.05 * sgn, 0.004], [Math.min(o.a1, a + 0.8), eb - 0.05 * sgn, 0.004], [Math.min(o.a1, a + 0.8), eb + j * sgn, 0.004], [a, eb + j * sgn, 0.004]], (Math.floor(a) & 1) ? [120, 78, 40] : [140, 94, 52], pitQ, -1);
         }
       }
       // Erdhaufen neben dem Loch
-      if (o.type === 'gap' && !o.noPile) {
+      if (false) {
         box(seg, o.a0 - 0.6, o.a0 - 0.25, HW - 0.45, HW - 0.1, 0, 0.22, [124, 82, 44], [146, 98, 56], objQ);
         box(seg, o.a1 + 0.2, o.a1 + 0.5, -HW + 0.1, -HW + 0.4, 0, 0.18, [124, 82, 44], [146, 98, 56], objQ);
       }
@@ -927,7 +936,7 @@ function renderSeg(seg, isPrev, isExit) {
   for (const o of seg.obs) if (!o.gone && o.type !== 'gap' && o.type !== 'narrow' && o.type !== 'slide') obstacle(seg, o);
   // Kroketten
   const spin = Math.abs(Math.cos(run.time * 5));
-  for (const c of seg.coins) if (!c.got) sprite(seg, c.a, c.b, c.y - 0.15, 0.32, SPR.kk, objQ, { sx: 0.35 + 0.65 * spin });
+  for (const c of seg.coins) if (!c.got) sprite(seg, c.a, c.b, c.y - 0.15, 0.32, SPR.kk, objQ, { sx: 0.35 + 0.65 * spin, minF: 1.4 });
   for (const p of seg.pus) if (!p.got) {
     const bob = Math.sin(run.time * 4) * 0.12;
     sprite(seg, p.a, p.b, p.y + bob - 0.2, 0.6, SPR[p.kind], objQ);
@@ -1130,7 +1139,10 @@ function render() {
   if (p.vetGap < 5) {
     const [vx, vz] = segWorld(r.cur, r.pa - p.vetGap, p.vetB);
     const vimg = (Math.floor(r.animT * 8) & 1) ? SPR.vetA : SPR.vetB;
-    spriteW(vx, vz, Math.abs(Math.sin(r.animT * 8)) * 0.08 + elev(r.cur, r.pa - p.vetGap), SPR.vetReal ? 1.85 : 1.75, vimg, objQ, { bias: -0.8 });
+    let vj = 0;
+    const va = r.pa - p.vetGap;
+    for (const o of r.cur.obs) if (o.type === 'gap' && va > o.a0 - 1 && va < o.a1 + 1) vj = Math.max(vj, 1.0 * Math.sin(Math.PI * (va - o.a0 + 1) / (o.a1 - o.a0 + 2)));
+    spriteW(vx, vz, Math.abs(Math.sin(r.animT * 8)) * 0.08 + vj + elev(r.cur, r.pa - p.vetGap), SPR.vetReal ? 1.85 : 1.75, vimg, objQ, { bias: -0.8 });
   }
   // Partikel
   for (const q of r.parts) spriteW(q.x, q.z, q.y + (q.gy || 0), q.s, SPR[q.spr], objQ, { alpha: clamp(q.t, 0, 1) });
@@ -1527,8 +1539,8 @@ function buildVetFrames(img) {
 
 function init() {
   buildSprites();
-  const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=6';
-  const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=6';
+  const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=7';
+  const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=7';
   const icoURL = (() => { const c = document.createElement('canvas'); c.width = SPR.kk.width * 2; c.height = SPR.kk.height * 2; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(SPR.kk, 0, 0, c.width, c.height); return c.toDataURL(); })();
   const st = document.createElement('style'); st.textContent = '.kk-ico{background-image:url(' + icoURL + ')!important}'; document.head.appendChild(st);
   paintCanvases(document);
