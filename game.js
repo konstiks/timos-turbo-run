@@ -13,8 +13,10 @@ const save = {
   best: store.get('best', []),
   name: store.get('name', ''),
   mute: store.get('mute', false),
+  tilt: store.get('tilt', true),
+  tutDone: store.get('tutDone', false),
 };
-function persist() { store.set('kk', save.kk); store.set('up', save.up); store.set('inv', save.inv); store.set('best', save.best); store.set('name', save.name); store.set('mute', save.mute); }
+function persist() { store.set('kk', save.kk); store.set('up', save.up); store.set('inv', save.inv); store.set('best', save.best); store.set('name', save.name); store.set('mute', save.mute); store.set('tilt', save.tilt); store.set('tutDone', save.tutDone); }
 
 // ---------- Konstanten ----------
 const HW = 1.8, LANE = 1.2, CAM_BACK = 3.4, CAM_H = 2.5, VIEW = 75, NEAR = 0.12;
@@ -98,6 +100,68 @@ const sfx = {
   level() { [392, 523, 659, 784, 659, 784].forEach((f, i) => setTimeout(() => beep(f, 0.1, 'square', 0.05), i * 90)); },
 };
 
+function noiseBurst(dur, freq, vol) {
+  if (save.mute || !actx) return;
+  const t = actx.currentTime, n = Math.floor(actx.sampleRate * dur);
+  const buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 1.2;
+  const gn = actx.createGain(); gn.gain.value = vol;
+  src.connect(f); f.connect(gn); gn.connect(actx.destination); src.start(t);
+}
+sfx.bark = function () {
+  const one = () => { beep(620, 0.13, 'square', 0.07, 230); noiseBurst(0.1, 1100, 0.25); };
+  one(); setTimeout(one, 190);
+};
+
+// ---------- Musik (selbst komponierte Chiptune-Schleifen) ----------
+const SONGS = {
+  park: { bpm: 150, root: 60, mel: [0, null, 4, 7, 12, null, 7, 4, 5, null, 9, 12, 9, null, 5, null, 7, null, 11, 14, 12, null, 7, 4, 5, 4, 2, null, 0, null, null, null],
+    bass: [0, 0, 5, 5, 7, 7, 0, 0] },
+  amt: { bpm: 126, root: 57, mel: [0, null, 3, null, 7, null, 3, null, 5, null, 8, null, 7, 5, 3, null, 2, null, 5, null, 8, null, 7, 5, 3, 2, 0, null, -2, null, 0, null],
+    bass: [0, 0, 5, 5, 3, 3, 7, 7] },
+  sofa: { bpm: 132, root: 65, mel: [7, null, 4, null, 2, 4, null, 0, 9, null, 7, null, 4, null, null, null, 5, null, 9, null, 12, 11, 9, 7, 4, null, 2, null, 0, null, null, null],
+    bass: [0, 0, 9, 9, 5, 5, 7, 7] },
+};
+const music = {
+  song: null, step: 0, next: 0, timer: null,
+  start(key) {
+    this.song = SONGS[key]; this.step = 0;
+    if (!actx) return;
+    this.next = actx.currentTime + 0.1;
+    if (!this.timer) this.timer = setInterval(() => this.tick(), 60);
+  },
+  stop() { if (this.timer) clearInterval(this.timer); this.timer = null; },
+  tick() {
+    if (!actx || !this.song) return;
+    const s = this.song, dur = 60 / s.bpm / 2;
+    while (this.next < actx.currentTime + 0.25) {
+      if (!save.mute) {
+        const m = s.mel[this.step % 32];
+        if (m !== null) this.note(s.root + m + 12, this.next, dur * 0.9, 'square', 0.025);
+        const b = s.bass[Math.floor(this.step / 4) % 8];
+        this.note(s.root + b - 12 + (this.step % 2 ? 12 : 0), this.next, dur * 0.8, 'triangle', 0.07);
+        if (this.step % 2 === 1) this.hat(this.next);
+      }
+      this.next += dur; this.step++;
+    }
+  },
+  note(midi, t, dur, type, vol) {
+    const o = actx.createOscillator(), gn = actx.createGain();
+    o.type = type; o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+    gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(gn); gn.connect(actx.destination); o.start(t); o.stop(t + dur + 0.02);
+  },
+  hat(t) {
+    if (!this.hatBuf) { const n = Math.floor(actx.sampleRate * 0.03); this.hatBuf = actx.createBuffer(1, n, actx.sampleRate); const d = this.hatBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); }
+    const src = actx.createBufferSource(); src.buffer = this.hatBuf;
+    const f = actx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7000;
+    const gn = actx.createGain(); gn.gain.value = 0.05;
+    src.connect(f); f.connect(gn); gn.connect(actx.destination); src.start(t);
+  },
+};
+
 // ---------- Strecke ----------
 let levelStarts = [0];
 function levelAt(dist) {
@@ -121,7 +185,7 @@ function makeSeg(sx, sz, dirIdx, startDist, opts) {
   };
   const prevLevel = opts.prevLevel;
   if (prevLevel !== undefined && prevLevel !== level) seg.gate = true;
-  populate(seg, opts.first);
+  if (opts.tut) tutorialSeg(seg); else populate(seg, opts.first);
   return seg;
 }
 
@@ -151,13 +215,15 @@ const HANG_AMT = ['BITTE NUMMER ZIEHEN', 'IHRE NR: 4711', 'ZIMMER 3.17', 'RUHE B
 const HANG_SOFA = ['SALE -70%', 'SOFAS SOFAS SOFAS', 'NUR HEUTE!', 'PROBESITZEN ERLAUBT', 'KUSCHELECKE'];
 function populate(seg, first) {
   const T = seg.theme, ob = OB[T.key];
-  const start = first ? 30 : (seg.gate ? 16 : 12);
-  const end = seg.L - HW - 9;
+  // Nach einer Kurve erst mal Ruhe, damit man reagieren kann (ca. 1,8 s Laufzeit)
+  const expSpeed = 9 + 12 * (1 - Math.exp(-seg.startDist / 1800));
+  const start = first ? 30 : Math.max(seg.gate ? 18 : 14, expSpeed * 1.8);
+  const end = seg.L - HW - Math.max(10, expSpeed * 0.9);
   const diff = clamp(seg.startDist / 2500, 0, 1);
   let a = start;
   while (a < end) {
     const r = Math.random();
-    const gapAfter = lerp(15, 9, diff) + rnd(0, 6);
+    const gapAfter = Math.max(expSpeed * 1.3, lerp(18, 11, diff)) + rnd(0, 7);
     if (r < 0.22) { // tiefes Hindernis über die ganze Breite -> springen
       const o = ob.low;
       seg.obs.push({ type: 'low', a0: a, a1: a + 0.7, h: o.h, def: o });
@@ -168,7 +234,7 @@ function populate(seg, first) {
       coinLine(seg, a - 3, rint(-1, 1), 4, 0.35);
     } else if (r < 0.82) { // Spur blockiert
       const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
-      const n = Math.random() < lerp(0.15, 0.55, diff) ? 2 : 1;
+      const n = Math.random() < lerp(0.06, 0.35, diff) ? 2 : 1;
       for (let i = 0; i < n; i++) {
         const o = pick(ob.block);
         const w = o.w || 1.05;
@@ -198,6 +264,21 @@ function populate(seg, first) {
   seg.coins = seg.coins.filter(c => c.a > 4 && c.a < seg.L - HW - 3 && !seg.obs.some(o => o.type === 'block' && Math.abs(o.b - c.b) < 0.6 && c.a > o.a0 - 0.6 && c.a < o.a1 + 0.6));
   decorate(seg);
 }
+function tutorialSeg(seg) {
+  const ob = OB.park;
+  seg.obs.push({ type: 'low', a0: 32, a1: 32.7, h: ob.low.h, def: ob.low });
+  seg.obs.push({ type: 'high', a0: 54, a1: 54.5, y0: ob.high.y0, def: ob.high });
+  seg.obs.push({ type: 'block', a0: 76, a1: 76.7, lane: 0, b: 0, w: 1.05, h: ob.block[0].h, def: ob.block[0] });
+  coinLine(seg, 12, 0, 8, 0.45); coinArc(seg, 32.35, 0); coinLine(seg, 50, 0, 3, 0.35);
+  coinLine(seg, 82, 1, 6, 0.45); coinLine(seg, 82, -1, 6, 0.45);
+  decorate(seg);
+}
+const TUT = [
+  { need: 'up', a: 32, d: 3.6, ico: '⬆', txt: 'Wisch nach OBEN, um über die Hecke zu springen!', sub: 'Am Computer: Pfeil ↑ oder Leertaste' },
+  { need: 'down', a: 54, d: 3.4, ico: '⬇', txt: 'Wisch nach UNTEN, um unter dem Rosenbogen durchzurutschen!', sub: 'Am Computer: Pfeil ↓' },
+  { need: 'side', a: 76, d: 5, ico: '⬅ ➡', txt: 'Wisch nach LINKS oder RECHTS, um der Parkbank auszuweichen!', sub: 'Am Computer: Pfeil ← / →' },
+  { need: 'turn', ico: '➡', txt: 'Kurve! Wisch nach RECHTS, um abzubiegen!', sub: 'Verpasst du eine Kurve, rennt Timo gegen die Hecke.' },
+];
 function coinLine(seg, a, lane, n, y) {
   for (let i = 0; i < n; i++) seg.coins.push({ a: a + i * 1.5, b: lane * LANE, y: y, got: false });
 }
@@ -217,10 +298,7 @@ function decorate(seg) {
     }
   } else {
     for (let s = -1; s <= 1; s += 2) {
-      for (let a = from + rnd(0, 4); a < to; a += rnd(5, 9)) {
-        if (T === 'amt') seg.deco.push({ spr: Math.random() < 0.7 ? 'plant' : 'cooler', a, b: s * (HW - 0.18), h: Math.random() < 0.7 ? 0.9 : 1.0, wall: true });
-        else seg.deco.push({ spr: 'floorLamp', a, b: s * (HW - 0.18), h: 1.8, wall: true });
-      }
+      // Keine Deko mehr auf dem Laufweg (Pflanzen usw. sahen wie Hindernisse aus)
       if (s > 0) for (let a = from + rnd(6, 14); a < to - 4; a += rnd(18, 30)) seg.deco.push({ hang: pick(T === 'amt' ? HANG_AMT : HANG_SOFA), a });
       // Wandschilder / Bilder
       for (let a = from + rnd(1, 4); a < to - 1; a += rnd(5, 8)) {
@@ -235,19 +313,22 @@ let state = 'menu';
 let run = null;
 const cam = { x: 0, z: 0, y: CAM_H, ang: 0 };
 
-function newRun() {
+function newRun(tut) {
   levelStarts = [0];
   distSincePU = 0; distSinceFax = 300;
-  const s0 = makeSeg(0, 0, 0, 0, { L: 70, first: true });
+  const s0 = tut ? makeSeg(0, 0, 0, 0, { L: 112, first: true, tut: true, exits: 'R' }) : makeSeg(0, 0, 0, 0, { L: 70, first: true });
   run = {
     prev: null, cur: s0,
     pa: 2, pb: 0, lane: 0, py: 0, vy: 0, slideT: 0, fastFall: false,
     dist: 0, coins: 0, time: 0, speed: 9,
-    stumbleT: 99, slowT: 0, vetGap: 1.6, vetB: 1.2, vetSay: 'Timo! Impftermin!', vetSayT: 2.5,
+    stumbleT: 99, slowT: 0, vetGap: 1.6, vetB: 1.2, vetSay: 'Timo! Impftermin!', vetSayT: 3.5,
     turnQ: null, eff: { magnet: 0, shield: 0, turbo: 0, fax: 0 },
     level: 0, shake: 0, dying: 0, deathCause: null, deathObs: null, lastObs: null,
     parts: [], frame: 0, animT: 0,
+    tut: !!tut, tutStep: 0, tutWait: false, vetIntro: tut ? 0 : 3,
   };
+  if (tut) { run.vetGap = 9; run.vetSayT = 0; }
+  tilt.base = null;
   genExits(run.cur, 2);
   const ang = Math.atan2(s0.dx, s0.dz);
   cam.ang = ang; cam.x = -s0.dx * CAM_BACK; cam.z = -s0.dz * CAM_BACK;
@@ -266,9 +347,16 @@ function genExits(seg, a0) {
 function segWorld(seg, a, b) { return [seg.sx + seg.dx * a + seg.rx * b, seg.sz + seg.dz * a + seg.rz * b]; }
 
 // ---------- Eingabe ----------
-function onInput(dir) {
+function onInput(dir, fromTilt) {
   if (state !== 'play' || !run || run.dying) return;
   const r = run, s = r.cur;
+  if (r.tutWait) {
+    const need = TUT[r.tutStep].need;
+    const ok = need === dir || (need === 'side' && (dir === 'left' || dir === 'right')) || (need === 'turn' && dir === 'right' && !fromTilt);
+    if (!ok) return;
+    r.tutWait = false; r.tutStep++; $('tut').classList.add('hidden');
+    if (r.tutStep >= TUT.length) finishTutorial();
+  }
   if (dir === 'up') {
     if (r.py <= 0.001) { r.vy = 7.6; r.slideT = 0; sfx.jump(); }
   } else if (dir === 'down') {
@@ -277,7 +365,7 @@ function onInput(dir) {
   } else {
     const want = dir === 'left' ? 'L' : 'R';
     const window_ = 7 + r.speed * 0.3;
-    const canTurn = (s.exits === want || s.exits === 'T') && r.pa > s.L - HW - window_;
+    const canTurn = !fromTilt && (s.exits === want || s.exits === 'T') && r.pa > s.L - HW - window_;
     if (canTurn) { r.turnQ = want; }
     else { r.lane = clamp(r.lane + (dir === 'left' ? -1 : 1), -1, 1); }
   }
@@ -287,7 +375,7 @@ window.addEventListener('keydown', e => {
   audioUnlock();
   if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
   if (e.code === 'KeyP' || e.code === 'Escape') { if (state === 'play') pauseGame(); else if (state === 'paused') resumeGame(); e.preventDefault(); return; }
-  if ((e.code === 'Enter' || e.code === 'Space') && state === 'menu') { startGame(); e.preventDefault(); return; }
+  if ((e.code === 'Enter' || e.code === 'Space') && state === 'menu' && !$('scrMenu').classList.contains('hidden')) { startGame(); e.preventDefault(); return; }
   const d = KEYMAP[e.code];
   if (d && state === 'play') { onInput(d); e.preventDefault(); }
 });
@@ -322,8 +410,22 @@ function update(dt) {
 
   if (r.dying) { updateDying(dt); updateParts(dt); updateCam(dt); return; }
 
+  // Tutorial: kurz anhalten, bis die richtige Geste kommt
+  if (r.tut && r.tutStep < TUT.length && !r.tutWait && r.cur === r.firstSeg0) {
+    const st = TUT[r.tutStep];
+    const trig = st.need === 'turn' ? r.cur.L - HW - 5 : st.a - st.d;
+    if (r.pa >= trig) {
+      r.tutWait = true;
+      $('tutIco').textContent = st.ico; $('tutIco').className = 'tut-ico ' + (st.need === 'turn' ? 'right' : st.need);
+      $('tutTxt').textContent = st.txt;
+      $('tutSub').textContent = st.sub + (st.need === 'side' && tiltOn() ? ' Oder kipp dein Handy zur Seite!' : '');
+      $('tut').classList.remove('hidden');
+    }
+  }
+  if (r.tutWait) { updateCam(dt); updateHUD(); return; }
+
   // Tempo
-  const base = 9 + 12 * (1 - Math.exp(-r.dist / 1800));
+  const base = (r.tut && r.tutStep < TUT.length) ? 8 : 9 + 12 * (1 - Math.exp(-r.dist / 1800));
   r.speed = base * (r.eff.turbo > 0 ? 1.75 : 1) * (r.slowT > 0 ? 0.7 : 1);
   if (r.slowT > 0) r.slowT -= dt;
   const step = r.speed * dt;
@@ -351,9 +453,12 @@ function update(dt) {
 
   // Tierarzt
   r.stumbleT += dt;
-  const close = r.stumbleT < 7 || r.time < 3;
-  const tg = close ? (r.time < 3 ? 1.6 + r.time * 0.2 : 1.5) : 6;
-  if (r.eff.fax > 0) r.vetGap = lerp(r.vetGap, 12, dt * 2); else r.vetGap = lerp(r.vetGap, tg, dt * (close ? 3 : 0.8));
+  if (r.vetIntro > 0) r.vetIntro -= dt;
+  const inTut = r.tut && r.tutStep < TUT.length;
+  const close = !inTut && (r.stumbleT < 7 || r.vetIntro > 0);
+  const tg = close ? (r.vetIntro > 0 ? 2.2 - r.vetIntro * 0.2 : 1.5) : (inTut ? 9 : 6);
+  if (r.eff.fax > 0 || r.eff.turbo > 0) { r.vetGap = lerp(r.vetGap, 12, dt * 1.5); r.stumbleT = 99; r.vetIntro = 0; }
+  else r.vetGap = lerp(r.vetGap, tg, dt * (close ? 3 : 0.8));
   const vb = r.pb > 0.3 ? r.pb - 1.3 : r.pb + 1.3;
   r.vetB = lerp(r.vetB, vb, dt * 4);
 
@@ -363,6 +468,7 @@ function update(dt) {
     r.level = r.cur.level;
     showBanner('Level ' + (r.level + 1) + ': ' + r.cur.theme.name, r.level >= 3 ? 'Jetzt noch schneller!' : '');
     sfx.level();
+    music.start(r.cur.theme.key);
   }
 
   updateParts(dt);
@@ -385,6 +491,7 @@ function doTurn() {
 
 function hitBy(o) {
   const r = run;
+  if (r.tut && r.tutStep < TUT.length) { o.hit = true; return; }
   if (r.eff.fax > 0 || r.eff.turbo > 0) { smash(o, r.eff.fax > 0); return; }
   if (r.eff.shield > 0) { r.eff.shield = 0; smash(o, false); sfx.hit(); r.shake = 0.6; return; }
   o.hit = true; r.lastObs = o;
@@ -392,7 +499,7 @@ function hitBy(o) {
   if (r.stumbleT < 7) { die('caught', o); return; }
   r.stumbleT = 0; r.slowT = 0.9;
   r.vetSay = pick(['Hab ich dich gleich!', 'Stillhalten, Timo!', 'Nur ein kleiner Piks!', 'Impfpass, bitte!']);
-  r.vetSayT = 2;
+  r.vetSayT = 3.2;
 }
 function smash(o, paper) {
   o.gone = true;
@@ -438,7 +545,7 @@ function activate(k) {
   if (k === 'fax') {
     sfx.fax();
     r.vetSay = pick(['Was?! Ein Fax?!', 'Eine Beschwerde? 12 Seiten?!', 'Moment, ich muss das lesen…']);
-    r.vetSayT = 2.5; r.stumbleT = 99;
+    r.vetSayT = 3.5; r.stumbleT = 99;
     showBanner('FAX GESENDET!', 'Dr. Spritz liest die Beschwerde');
     const [x, z] = segWorld(r.cur, r.pa, r.pb);
     for (let i = 0; i < 24; i++) r.parts.push({ x: x + rnd(-2, 2), z: z + rnd(-2, 2), y: rnd(0.5, 2.5), vx: rnd(-2, 2), vz: rnd(-2, 2), vy: rnd(1, 4), t: 2, spr: 'paper', s: 0.3 });
@@ -791,9 +898,9 @@ function render() {
   // Timo
   const sliding = r.slideT > 0 && r.py < 0.3;
   let img = r.py > 0.05 ? SPR.timoJ : (Math.floor(r.animT * (r.speed * 0.9)) & 1 ? SPR.timoA : SPR.timoB);
-  const dh = sliding ? 0.75 : 1.3;
+  const dh = SPR.timoReal ? (sliding ? 0.85 : 1.55) : (sliding ? 0.75 : 1.3);
   const [tx, tz] = segWorld(r.cur, r.pa, r.pb);
-  spriteW(tx, tz, r.py, dh, img, objQ, { sx: sliding ? 1.7 : 1, bias: -0.8 });
+  spriteW(tx, tz, r.py, dh, img, objQ, { sx: sliding ? (SPR.timoReal ? 1.5 : 1.7) : 1, bias: -0.8 });
   // Tierarzt
   const p = run;
   if (p.vetGap < 5) {
@@ -884,7 +991,7 @@ let screenStack = [];
 function show(id) { screens.forEach(s => $(s).classList.toggle('hidden', s !== id)); }
 function hideAll() { screens.forEach(s => $(s).classList.add('hidden')); }
 let bannerT = 0;
-function showBanner(t, sub) { const b = $('banner'); b.innerHTML = t + (sub ? '<small>' + sub + '</small>' : ''); b.classList.remove('hidden'); bannerT = 2.4; }
+function showBanner(t, sub) { const b = $('banner'); b.innerHTML = t + (sub ? '<small>' + sub + '</small>' : ''); b.classList.remove('hidden'); bannerT = 4.2; }
 function score() { return Math.floor(run.dist) + run.coins * 10; }
 let lastEffKey = '';
 function updateHUD() {
@@ -901,18 +1008,28 @@ function updateHUD() {
   $('hEffects').querySelectorAll('.eff').forEach(el => { const k = el.dataset.k; el.querySelector('i').style.width = Math.min(100, 100 * run.eff[k] / puDur(k)) + '%'; });
 }
 
-function startGame() {
+function startGame(forceTut) {
   audioUnlock();
-  newRun();
+  requestTilt();
+  const tut = forceTut === true || !save.tutDone;
+  newRun(tut);
+  run.firstSeg0 = run.cur;
+  music.start('park');
   state = 'play';
   hideAll();
   $('hud').classList.remove('hidden');
   lastEffKey = '#';
-  showBanner('Level 1: ' + THEMES[0].name, 'Lauf, Timo, lauf!');
+  if (tut) showBanner('Kurzes Tutorial', 'So steuerst du Timo'); else showBanner('Level 1: ' + THEMES[0].name, 'Lauf, Timo, lauf!');
+  $('tut').classList.add('hidden');
 }
-function pauseGame() { if (state !== 'play') return; state = 'paused'; show('scrPause'); }
-function resumeGame() { state = 'play'; hideAll(); last = performance.now(); }
-function quitGame() { state = 'menu'; $('hud').classList.add('hidden'); run = null; openMenu(); }
+function finishTutorial() {
+  save.tutDone = true; persist();
+  run.vetIntro = 3.5; run.vetSay = 'Timo! Impftermin!'; run.vetSayT = 3.5;
+  showBanner('Super gemacht!', 'Jetzt geht es richtig los. Dr. Spritz ist hinter dir her!' + (tiltOn() ? ' Tipp: Kipp das Handy, um die Spur zu wechseln.' : ''));
+}
+function pauseGame() { if (state !== 'play') return; state = 'paused'; music.stop(); show('scrPause'); }
+function resumeGame() { state = 'play'; hideAll(); last = performance.now(); if (run) music.start(run.cur.theme.key); tilt.base = null; }
+function quitGame() { music.stop(); $('tut').classList.add('hidden'); state = 'menu'; $('hud').classList.add('hidden'); run = null; openMenu(); }
 
 const PLACES = { park: 'Stadtpark', amt: 'Bürgeramt, Wartebereich', sofa: 'Sofa-Paradies, Abteilung Polster' };
 function anzeigeText() {
@@ -926,9 +1043,31 @@ function anzeigeText() {
   return { gegen: 'Dr. Spritz (Tierarzt)', ort: place,
     grund: pick(['Verfolgung mit einer riesigen Spritze', 'Unerlaubtes Impfen ohne Termin', 'Hinterhältiges Auflauern hinter dem Hindernis "' + what + '"', 'Grober Missbrauch von Leckerli als Köder']) + '. Außerdem: "' + what + '" stand im Weg.' };
 }
+// ---------- Bestenliste: online (Supabase, wie bei der Shake-Bar), sonst auf dem Gerät ----------
+const SB_URL = 'https://ebhtxhjyzdhpmumcdnhs.supabase.co';
+const SB_KEY = 'sb_publishable_1O5YzhrAcz8TDItiZvhYjg_mQIRjJuh';
+let online = null, markId = null;
+function sbFetch(path, opts) {
+  opts = opts || {};
+  const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 7000);
+  return fetch(SB_URL + '/rest/v1/' + path, Object.assign({}, opts, { signal: ctrl.signal,
+    headers: Object.assign({ apikey: SB_KEY, 'Content-Type': 'application/json' }, opts.headers || {}) }))
+    .then(r => { clearTimeout(t); if (!r.ok) throw new Error('HTTP ' + r.status); return r.status === 204 ? null : r.json(); })
+    .catch(e => { clearTimeout(t); throw e; });
+}
+function loadOnline() {
+  return sbFetch('ttr_scores?select=id,name,score&order=score.desc,created_at.asc&limit=10')
+    .then(rows => { online = Array.isArray(rows) ? rows : []; return online; })
+    .catch(() => { online = null; return null; });
+}
+const activeList = () => online || save.best;
+const qualifiesFor = sc => { const l = activeList(); return sc > 0 && (l.length < 10 || sc > l[l.length - 1].score); };
+
 let lastEntry = null;
 function gameOver() {
   state = 'over';
+  music.stop(); $('tut').classList.add('hidden');
+  setTimeout(() => timoBark('over'), 900);
   sfx.over();
   $('hud').classList.add('hidden');
   const sc = score();
@@ -938,16 +1077,24 @@ function gameOver() {
   $('oScore').textContent = sc; $('oMeter').textContent = Math.floor(run.dist); $('oKK').textContent = run.coins;
   const best = save.best[0] ? save.best[0].score : 0;
   $('newBest').classList.toggle('hidden', !(sc > best));
-  const qualifies = save.best.length < 10 || sc > save.best[save.best.length - 1].score;
-  $('nameForm').classList.toggle('hidden', !qualifies || sc === 0);
-  $('overBest').classList.toggle('hidden', qualifies && sc > 0);
-  if (!(qualifies && sc > 0)) fillBest($('overBest'), null);
   $('nameIn').value = save.name || '';
   lastEntry = { score: sc, meter: Math.floor(run.dist), kk: run.coins, date: Date.now() };
+  markId = null;
+  const decide = () => {
+    const q = qualifiesFor(sc);
+    $('nameForm').classList.toggle('hidden', !q);
+    $('overBest').classList.toggle('hidden', q);
+    if (!q) fillBest($('overBest'));
+  };
+  decide();
+  loadOnline().then(() => { if (state === 'over' && !$('nameForm').dataset.sent) decide(); });
+  delete $('nameForm').dataset.sent;
   show('scrOver');
 }
 $('nameForm').addEventListener('submit', e => {
   e.preventDefault();
+  if ($('nameForm').dataset.sent) return;
+  $('nameForm').dataset.sent = '1';
   const name = ($('nameIn').value || '').trim().slice(0, 12) || 'Timo-Fan';
   save.name = name;
   const entry = Object.assign({ name }, lastEntry);
@@ -955,15 +1102,23 @@ $('nameForm').addEventListener('submit', e => {
   save.best.sort((a, b) => b.score - a.score);
   save.best = save.best.slice(0, 10);
   persist();
+  markId = entry;
   $('nameIn').blur();
   $('nameForm').classList.add('hidden');
-  fillBest($('overBest'), entry);
   $('overBest').classList.remove('hidden');
+  fillBest($('overBest'));
+  sbFetch('ttr_scores?select=id', { method: 'POST', headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ name: entry.name, score: entry.score, meter: entry.meter, kroketten: entry.kk }) })
+    .then(rows => { markId = rows && rows[0] ? rows[0].id : entry; return loadOnline(); })
+    .catch(() => {})
+    .then(() => fillBest($('overBest')));
 });
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-function fillBest(el, me) {
-  if (!save.best.length) { el.innerHTML = '<li class="empty">Noch keine Einträge. Lauf los!</li>'; return; }
-  el.innerHTML = save.best.map((b, i) => '<li class="' + (b === me ? 'me' : '') + '"><span>' + (i + 1) + '.</span><span class="n">' + esc(b.name) + '</span><span class="s">' + b.score + '</span></li>').join('');
+function fillBest(el) {
+  const l = activeList();
+  const head = '<li class="head">' + (online ? 'Online-Bestenliste (alle Spieler)' : 'Bestenliste (dieses Gerät)') + '</li>';
+  if (!l.length) { el.innerHTML = head + '<li class="empty">Noch keine Einträge. Lauf los!</li>'; return; }
+  el.innerHTML = head + l.map((b, i) => '<li class="' + ((markId !== null && (b === markId || b.id === markId)) ? 'me' : '') + '"><span>' + (i + 1) + '.</span><span class="n">' + esc(b.name) + '</span><span class="s">' + b.score + '</span></li>').join('');
 }
 
 const SHOP = [
@@ -1000,13 +1155,17 @@ function paintCanvases(root) {
     const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(s, 0, 0);
   });
 }
-function openMenu() { $('mKK').textContent = save.kk; $('btnSound').textContent = 'Ton: ' + (save.mute ? 'aus' : 'an'); show('scrMenu'); }
+function openMenu() { music.stop(); $('mKK').textContent = save.kk; $('btnSound').textContent = 'Ton: ' + (save.mute ? 'aus' : 'an'); $('btnTilt').textContent = 'Kippen: ' + (save.tilt ? 'an' : 'aus'); $('btnTilt').classList.toggle('hidden', !isTouch); show('scrMenu'); }
 
-$('btnStart').onclick = startGame;
-$('btnAgain').onclick = startGame;
+$('btnStart').onclick = () => startGame();
+$('btnAgain').onclick = () => startGame();
+$('btnTut').onclick = () => startGame(true);
+$('btnTilt').onclick = () => { save.tilt = !save.tilt; persist(); if (save.tilt) requestTilt(); openMenu(); };
+$('menuTimo').onclick = () => { audioUnlock(); timoBark('menu'); };
+$('overTimo').onclick = () => { audioUnlock(); timoBark('over'); };
 $('btnMenu').onclick = () => { state = 'menu'; run = null; openMenu(); };
 $('btnShop').onclick = () => { renderShop(); show('scrShop'); };
-$('btnBest').onclick = () => { fillBest($('bestList'), null); show('scrBest'); };
+$('btnBest').onclick = () => { markId = null; fillBest($('bestList')); show('scrBest'); loadOnline().then(() => fillBest($('bestList'))); };
 $('btnHelp').onclick = () => { show('scrHelp'); };
 $('btnSound').onclick = () => { save.mute = !save.mute; persist(); audioUnlock(); openMenu(); };
 $('btnPause').onclick = e => { e.stopPropagation(); pauseGame(); };
@@ -1032,8 +1191,62 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// ---------- Neigungssteuerung (wie beim Kippen des Handys) ----------
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const tilt = { base: null, armed: true, perm: null, seen: false };
+function tiltOn() { return isTouch && save.tilt && tilt.perm !== false; }
+function requestTilt() {
+  if (!isTouch || !save.tilt || tilt.perm === true) return;
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(r => { tilt.perm = r === 'granted'; }).catch(() => { tilt.perm = false; });
+  } else tilt.perm = true;
+}
+window.addEventListener('deviceorientation', e => {
+  if (!tiltOn() || state !== 'play' || !run || run.dying) return;
+  const ang = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (window.orientation || 0);
+  let v = (ang === 90) ? e.beta : (ang === 270 || ang === -90) ? -e.beta : e.gamma;
+  if (v == null) return;
+  tilt.seen = true;
+  if (tilt.base === null) { tilt.base = v; return; }
+  const d = v - tilt.base;
+  if (tilt.armed && Math.abs(d) > 15) { tilt.armed = false; onInput(d > 0 ? 'right' : 'left', true); }
+  else if (!tilt.armed && Math.abs(d) < 7) tilt.armed = true;
+  if (tilt.armed && Math.abs(d) < 7) tilt.base = lerp(tilt.base, v, 0.02); // langsam nachkalibrieren
+});
+
+// ---------- Timo bellt ----------
+function timoBark(where) {
+  const img = $(where === 'menu' ? 'menuTimo' : 'overTimo'), w = $(where === 'menu' ? 'menuWuff' : 'overWuff');
+  if (!img || img.offsetParent === null) return;
+  img.classList.remove('bark'); void img.offsetWidth; img.classList.add('bark');
+  w.textContent = pick(['WUFF!', 'WUFF WUFF!', 'WAU!', 'GRRR… WUFF!']);
+  w.classList.remove('hidden');
+  sfx.bark();
+  clearTimeout(w._t); w._t = setTimeout(() => { w.classList.add('hidden'); img.classList.remove('bark'); }, 1100);
+}
+setInterval(() => {
+  if (state === 'over' && Math.random() < 0.6) timoBark('over');
+  if (state === 'menu' && !$('scrMenu').classList.contains('hidden') && Math.random() < 0.35) timoBark('menu');
+}, 3200);
+
+// Timo von hinten aus dem Bild des Besitzers: Lauf-Animation durch Beine anheben
+function buildTimoFrames(img) {
+  const w = img.width, h = img.height, legY = Math.round(h * 0.79), mid = Math.round(w / 2);
+  const mk = (lo, ro, bob) => {
+    const c = document.createElement('canvas'); c.width = w; c.height = h + 4;
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+    g.drawImage(img, 0, legY, mid, h - legY, 0, legY + 4 - bob - lo, mid, h - legY);
+    g.drawImage(img, mid, legY, w - mid, h - legY, mid, legY + 4 - bob - ro, w - mid, h - legY);
+    g.drawImage(img, 0, 0, w, legY, 0, 4 - bob, w, legY);
+    return c;
+  };
+  SPR.timoA = mk(4, 0, 1); SPR.timoB = mk(0, 4, 1); SPR.timoJ = mk(5, 5, 0);
+  SPR.timoReal = true;
+}
+
 function init() {
   buildSprites();
+  const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png';
   const icoURL = (() => { const c = document.createElement('canvas'); c.width = SPR.kk.width * 2; c.height = SPR.kk.height * 2; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(SPR.kk, 0, 0, c.width, c.height); return c.toDataURL(); })();
   const st = document.createElement('style'); st.textContent = '.kk-ico{background-image:url(' + icoURL + ')!important}'; document.head.appendChild(st);
   paintCanvases(document);
