@@ -1131,9 +1131,11 @@ function render() {
   // Timo
   const sliding = r.slideT > 0 && r.py < 0.3;
   let img = r.py > 0.05 ? SPR.timoJ : (Math.floor(r.animT * (r.speed * 0.9)) & 1 ? SPR.timoA : SPR.timoB);
-  const dh = SPR.timoReal ? (sliding ? 0.85 : 1.55) : (sliding ? 0.75 : 1.3);
+  let dh = SPR.timoReal ? (sliding ? 0.85 : 1.55) : (sliding ? 0.75 : 1.3), tsx = sliding ? (SPR.timoReal ? 1.5 : 1.7) : 1;
+  if (sliding && r.onSlide && SPR.timoSlide) { img = SPR.timoSlide; dh = 0.78; tsx = 1; }
+  else if (sliding && SPR.timoDuck) { img = SPR.timoDuck; dh = 0.95; tsx = 1; }
   const [tx, tz] = segWorld(r.cur, r.pa, r.pb);
-  spriteW(tx, tz, r.py + elev(r.cur, r.pa), dh, img, objQ, { sx: sliding ? (SPR.timoReal ? 1.5 : 1.7) : 1, bias: -0.8, alpha: r.deathCause === 'fall' ? clamp(1 + r.py * 0.6, 0, 1) : undefined });
+  spriteW(tx, tz, r.py + elev(r.cur, r.pa), dh, img, objQ, { sx: tsx, bias: -0.8, alpha: r.deathCause === 'fall' ? clamp(1 + r.py * 0.6, 0, 1) : undefined });
   // Tierarzt
   const p = run;
   if (p.vetGap < 5) {
@@ -1540,6 +1542,8 @@ function buildVetFrames(img) {
 function init() {
   buildSprites();
   const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=7';
+  const di = new Image(); di.onload = () => { SPR.timoDuck = di; }; di.src = 'assets/timo-ducken.png?v=8';
+  const si = new Image(); si.onload = () => { SPR.timoSlide = si; }; si.src = 'assets/timo-slide.png?v=8';
   const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=7';
   const icoURL = (() => { const c = document.createElement('canvas'); c.width = SPR.kk.width * 2; c.height = SPR.kk.height * 2; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(SPR.kk, 0, 0, c.width, c.height); return c.toDataURL(); })();
   const st = document.createElement('style'); st.textContent = '.kk-ico{background-image:url(' + icoURL + ')!important}'; document.head.appendChild(st);
