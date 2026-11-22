@@ -78,6 +78,7 @@ let actx = null;
 function audioUnlock() {
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
   if (actx && actx.state === 'suspended') actx.resume();
+  if (actx) loadBark();
 }
 function beep(freq, dur, type, vol, slide) {
   if (save.mute || !actx) return;
@@ -131,8 +132,38 @@ function barkOnce(pitch) {
   const gn = actx.createGain(); gn.gain.value = 0.35;
   src.connect(nf); nf.connect(gn); gn.connect(out); src.start(t);
 }
+// Timos echtes Bellen (Aufnahme vom Besitzer), sonst Ersatz-Beller
+let barkBuf = null, barkLoading = false;
+function loadBark() {
+  if (barkBuf || barkLoading || !actx) return;
+  barkLoading = true;
+  fetch('assets/bellen.mp3?v=5').then(r => r.arrayBuffer())
+    .then(ab => new Promise((res, rej) => actx.decodeAudioData(ab, res, rej)))
+    .then(b => { barkBuf = b; }).catch(() => { barkLoading = false; });
+}
 sfx.bark = function () {
-  barkOnce(1); setTimeout(() => barkOnce(1.08), 230);
+  if (save.mute || !actx) return;
+  loadBark();
+  if (barkBuf) {
+    const src = actx.createBufferSource(); src.buffer = barkBuf;
+    src.playbackRate.value = rnd(0.95, 1.08);
+    const gn = actx.createGain(); gn.gain.value = 0.9;
+    src.connect(gn); gn.connect(actx.destination); src.start();
+  } else { barkOnce(1); setTimeout(() => barkOnce(1.08), 230); }
+};
+// Applaus (gefiltertes Rauschen als viele kleine Klatscher)
+sfx.applause = function () {
+  if (save.mute || !actx) return;
+  const t0 = actx.currentTime, n = Math.floor(actx.sampleRate * 0.02);
+  const buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+  for (let i = 0; i < 140; i++) {
+    const t = t0 + Math.random() * 2.6, src = actx.createBufferSource(); src.buffer = buf;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = rnd(900, 2600); f.Q.value = 0.8;
+    const gn = actx.createGain(); gn.gain.value = 0.25 * (1 - (t - t0) / 3.2);
+    src.connect(f); f.connect(gn); gn.connect(actx.destination); src.start(t);
+  }
+  [523, 659, 784, 1046, 784, 1046].forEach((fq, i) => setTimeout(() => beep(fq, 0.14, 'square', 0.05), i * 110));
 };
 
 // ---------- Musik (selbst komponierte Chiptune-Schleifen) ----------
@@ -216,7 +247,9 @@ const OB = { // Hindernis-Arten pro Thema
     low: { name: 'Hecke', h: 0.62, c: [70, 150, 60], top: [110, 190, 90], kind: 'hedge' },
     high: { name: 'Rosenbogen', y0: 0.95, c: [120, 80, 40], top: [200, 90, 120], kind: 'arch' },
     block: [{ name: 'Parkbank', h: 0.7, c: [150, 96, 50], top: [180, 120, 66], kind: 'bench' },
-            { name: 'Mülleimer', h: 1.25, c: [60, 120, 70], top: [40, 80, 50], kind: 'bin', w: 0.8 }],
+            { name: 'Mülleimer', h: 1.25, c: [60, 120, 70], top: [40, 80, 50], kind: 'bin', w: 0.8 },
+            { name: 'Baum', h: 9, c: [110, 70, 36], top: [90, 56, 30], kind: 'tree', w: 0.95 },
+            { name: 'Baum', h: 9, c: [110, 70, 36], top: [90, 56, 30], kind: 'tree', w: 0.95 }],
   },
   amt: {
     low: { name: 'Aktenstapel', h: 0.6, c: [230, 220, 190], top: [250, 245, 230], kind: 'files' },
@@ -328,19 +361,22 @@ function decorate(seg) {
   const from = HW + 1, to = seg.L - HW - 1;
   if (T === 'park') {
     for (let s = -1; s <= 1; s += 2) {
-      for (let a = rnd(-2, 4); a < seg.L + HW + 6; a += rnd(4, 9)) {
-        seg.deco.push({ spr: 'tree', a, b: s * rnd(HW + 2, HW + 7), h: rnd(3.2, 4.6) });
+      // Bäume nur dort, wo kein Weg verläuft (nicht in Kreuzungen / Nachbarwegen)
+      const open = s < 0 ? (seg.exits === 'L' || seg.exits === 'T') : (seg.exits === 'R' || seg.exits === 'T');
+      const tEnd = open ? seg.L - HW - 2.5 : seg.L + HW + 4;
+      for (let a = HW + 2.5 + rnd(0, 3); a < tEnd; a += rnd(4, 9)) {
+        seg.deco.push({ spr: 'tree', a, b: s * rnd(HW + 2, HW + 7), h: rnd(2.3, 3.2) });
       }
       for (let a = from; a < to; a += rnd(9, 15)) seg.deco.push({ spr: 'lamp', a, b: s * (HW + 0.7), h: 2.3 });
-      for (let a = rnd(0, 3); a < seg.L; a += rnd(2, 5)) seg.deco.push({ spr: 'flower', a, b: s * rnd(HW + 0.6, HW + 2), h: 0.35 });
+      for (let a = HW + 1 + rnd(0, 3); a < seg.L - HW - 1; a += rnd(2, 5)) seg.deco.push({ spr: 'flower', a, b: s * rnd(HW + 0.6, HW + 2), h: 0.35 });
     }
   } else {
     for (let s = -1; s <= 1; s += 2) {
       // Keine Deko mehr auf dem Laufweg (Pflanzen usw. sahen wie Hindernisse aus)
       if (s > 0) for (let a = from + rnd(6, 14); a < to - 4; a += rnd(18, 30)) seg.deco.push({ hang: pick(T === 'amt' ? HANG_AMT : HANG_SOFA), a });
       // Wandschilder / Bilder
-      for (let a = from + rnd(1, 4); a < to - 1; a += (T === 'sofa' ? rnd(2.6, 3.6) : rnd(5, 8))) {
-        seg.deco.push({ poster: true, side: s, a, w: rnd(0.8, 1.4), kind: T === 'amt' ? pick(['door', 'poster', 'poster', 'board']) : pick(['display', 'display', 'shelf', 'shelf', 'sale', 'frame']), col: pick(T === 'amt' ? [[90, 130, 190], [220, 200, 120], [200, 90, 80], [120, 170, 120]] : [[240, 200, 80], [90, 150, 210], [240, 240, 220], [130, 200, 140]]) });
+      for (let a = from + rnd(1, 4); a < to - 1; a += (T === 'sofa' ? rnd(2.4, 2.9) : rnd(5, 8))) {
+        seg.deco.push({ poster: true, side: s, a, w: rnd(0.8, 1.4), kind: T === 'amt' ? pick(['door', 'poster', 'poster', 'board']) : pick(['display', 'display', 'display', 'display', 'shelf', 'sale']), col: pick(T === 'amt' ? [[90, 130, 190], [220, 200, 120], [200, 90, 80], [120, 170, 120]] : [[240, 200, 80], [90, 150, 210], [240, 240, 220], [130, 200, 140]]) });
       }
     }
   }
@@ -505,8 +541,17 @@ function update(dt) {
   const lvl = levelAt(r.dist);
   if (r.cur.level !== r.level && r.pa > HW) {
     r.level = r.cur.level;
-    showBanner('Level ' + (r.level + 1) + ': ' + r.cur.theme.name, r.level >= 3 ? 'Jetzt noch schneller!' : '');
-    sfx.level();
+    if (r.level > 0 && r.level % 3 === 0) {
+      const round = r.level / 3, bonus = 50 * round;
+      r.coins += bonus;
+      showBanner('RUNDE ' + round + ' GESCHAFFT!', 'Level ' + (r.level + 1) + ': ' + r.cur.theme.name + ' · +' + bonus + ' Kroketten · jetzt schneller!');
+      sfx.applause();
+      const [x, z] = segWorld(r.cur, r.pa + 3, 0);
+      for (let i = 0; i < 30; i++) r.parts.push({ x: x + rnd(-2, 2), z: z + rnd(-1, 3), y: rnd(0.5, 2.5), vx: rnd(-2, 2), vz: rnd(-1, 2), vy: rnd(2, 5), t: 2, spr: 'star', s: 0.25 });
+    } else {
+      showBanner('Level ' + (r.level + 1) + ': ' + r.cur.theme.name, '');
+      sfx.level();
+    }
     music.start(r.cur.theme.key);
   }
 
@@ -772,17 +817,32 @@ function renderSeg(seg, isPrev, isExit) {
       // dunkle Tiefe + sichtbare Rückwand (nur so tief, dass sie im Loch bleibt)
       const cl2 = camLocal(seg), fd = Math.max(0.5, o.a1 - cl2.a), len = o.a1 - o.a0;
       const D = Math.min(1.6, cam.y * len / Math.max(0.3, fd - len)) * 0.95;
-      quad(seg, [[o.a0, b0, 0.002], [o.a1, b0, 0.002], [o.a1, b1, 0.002], [o.a0, b1, 0.002]], [14, 10, 8], pitQ);
-      if (cl2.a < o.a1) quad(seg, [[o.a1, b0, 0.003], [o.a1, b1, 0.003], [o.a1, b1, -D], [o.a1, b0, -D]], T.outdoor ? [110, 74, 40] : [70, 60, 56], pitQ, -0.5);
-      // Warnstreifen an der Kante
-      const n = Math.max(2, Math.round((b1 - b0) / 0.3));
+      // Erdloch: dunkle Tiefe, Erdwand mit Schichten, unregelmäßiger Erdrand
+      const seed = Math.floor(o.a0 * 13.7);
+      const jag = k => 0.12 + 0.12 * (((seed + k * 37) % 7) / 6);
+      quad(seg, [[o.a0, b0, 0.002], [o.a1, b0, 0.002], [o.a1, b1, 0.002], [o.a0, b1, 0.002]], [26, 15, 8], pitQ);
+      if (cl2.a < o.a1) {
+        quad(seg, [[o.a1, b0, 0.003], [o.a1, b1, 0.003], [o.a1, b1, -D], [o.a1, b0, -D]], [104, 66, 34], pitQ, -0.5);
+        quad(seg, [[o.a1 - 0.001, b0, -D * 0.35], [o.a1 - 0.001, b1, -D * 0.35], [o.a1 - 0.001, b1, -D * 0.55], [o.a1 - 0.001, b0, -D * 0.55]], [78, 48, 24], pitQ, -0.6);
+        quad(seg, [[o.a1 - 0.001, b0, -D * 0.75], [o.a1 - 0.001, b1, -D * 0.75], [o.a1 - 0.001, b1, -D], [o.a1 - 0.001, b0, -D]], [58, 36, 18], pitQ, -0.6);
+      }
+      const n = Math.max(3, Math.round((b1 - b0) / 0.35));
       for (let k = 0; k < n; k++) {
         const x0 = b0 + k * (b1 - b0) / n, x1 = x0 + (b1 - b0) / n;
-        quad(seg, [[o.a0 - 0.28, x0, 0.004], [o.a0, x0, 0.004], [o.a0, x1, 0.004], [o.a0 - 0.28, x1, 0.004]], k & 1 ? [30, 30, 30] : [250, 200, 30], pitQ, -1);
+        quad(seg, [[o.a0 - jag(k), x0, 0.004], [o.a0 + 0.06, x0, 0.004], [o.a0 + 0.06, x1, 0.004], [o.a0 - jag(k + 3), x1, 0.004]], k & 1 ? [120, 78, 40] : [140, 94, 52], pitQ, -1);
+        quad(seg, [[o.a1 - 0.06, x0, 0.004], [o.a1 + jag(k + 1), x0, 0.004], [o.a1 + jag(k + 5), x1, 0.004], [o.a1 - 0.06, x1, 0.004]], k & 1 ? [140, 94, 52] : [120, 78, 40], pitQ, -1);
       }
-      if (o.type === 'narrow') { // Längskante zur begehbaren Seite
-        const eb = o.side < 0 ? b0 : b1;
-        quad(seg, [[o.a0, eb - 0.06, 0.004], [o.a1, eb - 0.06, 0.004], [o.a1, eb + 0.06, 0.004], [o.a0, eb + 0.06, 0.004]], [250, 200, 30], pitQ, -1);
+      if (o.type === 'narrow') { // Erdkante zur begehbaren Seite
+        const eb = o.side < 0 ? b0 : b1, sgn = o.side < 0 ? 1 : -1;
+        for (let a = o.a0; a < o.a1; a += 0.8) {
+          const j = jag(Math.floor(a * 3));
+          quad(seg, [[a, eb - 0.05 * sgn, 0.004], [Math.min(o.a1, a + 0.8), eb - 0.05 * sgn, 0.004], [Math.min(o.a1, a + 0.8), eb + j * sgn, 0.004], [a, eb + j * sgn, 0.004]], (Math.floor(a) & 1) ? [120, 78, 40] : [140, 94, 52], pitQ, -1);
+        }
+      }
+      // Erdhaufen neben dem Loch
+      if (o.type === 'gap' && !o.noPile) {
+        box(seg, o.a0 - 0.6, o.a0 - 0.25, HW - 0.45, HW - 0.1, 0, 0.22, [124, 82, 44], [146, 98, 56], objQ);
+        box(seg, o.a1 + 0.2, o.a1 + 0.5, -HW + 0.1, -HW + 0.4, 0, 0.18, [124, 82, 44], [146, 98, 56], objQ);
       }
     }
   }
@@ -843,8 +903,8 @@ function endWall(seg, cl) {
   if (T.outdoor) {
     const h = T.wall.h;
     box(seg, a, a + 0.45, -HW - 0.45, HW + 0.45, 0, h, T.wall.front, T.wall.top, objQ);
-    sprite(seg, a + 2.5, -1.2, 0, 4.2, SPR.tree, objQ);
-    sprite(seg, a + 3.5, 1.4, 0, 3.8, SPR.tree, objQ);
+    sprite(seg, a + 2.5, -1.2, 0, 3.0, SPR.tree, objQ);
+    sprite(seg, a + 3.5, 1.4, 0, 2.8, SPR.tree, objQ);
   } else {
     for (let j = 0; j < 3; j++) {
       const b0 = -HW + j * LANE, b1 = b0 + LANE;
@@ -865,7 +925,9 @@ function poster(seg, d) {
   if (d.kind === 'sale') { col = [255, 230, 60]; y0 = 1.5; y1 = 2.3; }
   if (d.kind === 'display') { // Schaufenster mit Ausstellungs-Sofa
     const w2 = 2.2, sc = SOFA_COLS[Math.floor(d.a * 7) % SOFA_COLS.length];
-    quad(seg, [[a0, b, 0.3], [a0 + w2, b, 0.3], [a0 + w2, b, 2.3], [a0, b, 2.3]], [255, 244, 214], objQ, 0.15);
+    quad(seg, [[a0 - 0.1, b, 0.2], [a0 + w2 + 0.1, b, 0.2], [a0 + w2 + 0.1, b, 2.4], [a0 - 0.1, b, 2.4]], [60, 60, 70], objQ, 0.17);
+    quad(seg, [[a0, b, 0.3], [a0 + w2, b, 0.3], [a0 + w2, b, 2.3], [a0, b, 2.3]], [214, 236, 246], objQ, 0.15);
+    quad(seg, [[a0 + 0.1, b, 1.95], [a0 + 0.6, b, 2.25], [a0 + 0.75, b, 2.25], [a0 + 0.25, b, 1.95]], [250, 255, 255], objQ, 0.02);
     quad(seg, [[a0 + 0.3, b, 0.45], [a0 + w2 - 0.3, b, 0.45], [a0 + w2 - 0.3, b, 0.85], [a0 + 0.3, b, 0.85]], sc, objQ, 0.05);
     quad(seg, [[a0 + 0.3, b, 0.85], [a0 + w2 - 0.3, b, 0.85], [a0 + w2 - 0.3, b, 1.35], [a0 + 0.3, b, 1.35]], shade(sc, 0.8), objQ, 0.06);
     quad(seg, [[a0 + 0.15, b, 0.45], [a0 + 0.35, b, 0.45], [a0 + 0.35, b, 1.05], [a0 + 0.15, b, 1.05]], shade(sc, 0.7), objQ, 0.04);
@@ -875,7 +937,7 @@ function poster(seg, d) {
     return;
   }
   if (d.kind === 'shelf') {
-    const w2 = Math.max(d.w, 1.3);
+    const w2 = 2.2;
     quad(seg, [[a0, b, 0.2], [a0 + w2, b, 0.2], [a0 + w2, b, 2.4], [a0, b, 2.4]], [130, 86, 50], objQ, 0.15);
     for (let row = 0; row < 3; row++) for (let k = 0; k < 3; k++) {
       const c = SOFA_COLS[(row * 3 + k + Math.floor(d.a)) % SOFA_COLS.length];
@@ -944,6 +1006,9 @@ function obstacle(seg, o) {
       box(seg, o.a0, o.a1, b0, b1, 0, 1.0, d.c, d.top, objQ);
       box(seg, o.a0 + 0.1, o.a1, b0 + 0.05, b1 - 0.05, 1.0, o.h, [210, 214, 220], [120, 200, 120], objQ);
       box(seg, o.a0 - 0.01, o.a0, b0 + 0.15, b1 - 0.15, 0.55, 0.65, [60, 60, 70], null, objQ);
+    } else if (d.kind === 'tree') {
+      box(seg, o.a0 + 0.3, o.a0 + 0.55, o.b - 0.13, o.b + 0.13, 0, 0.9, d.c, d.top, objQ);
+      sprite(seg, o.a0 + 0.42, o.b, 0, 2.5, SPR.tree, objQ, { bias: -0.1 });
     } else if (d.kind === 'bin') {
       box(seg, o.a0 + 0.15, o.a1 - 0.15, b0 + 0.1, b1 - 0.1, 0, o.h, d.c, d.top, objQ);
       box(seg, o.a0 + 0.1, o.a1 - 0.1, b0 + 0.05, b1 - 0.05, o.h - 0.15, o.h, [80, 160, 90], [40, 70, 45], objQ);
@@ -1377,7 +1442,7 @@ function buildTimoFrames(img) {
 
 function init() {
   buildSprites();
-  const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=4';
+  const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=5';
   const icoURL = (() => { const c = document.createElement('canvas'); c.width = SPR.kk.width * 2; c.height = SPR.kk.height * 2; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(SPR.kk, 0, 0, c.width, c.height); return c.toDataURL(); })();
   const st = document.createElement('style'); st.textContent = '.kk-ico{background-image:url(' + icoURL + ')!important}'; document.head.appendChild(st);
   paintCanvases(document);
