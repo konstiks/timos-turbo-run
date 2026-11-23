@@ -706,12 +706,25 @@ function die(cause, o) {
   r.dying = 1.6; r.deathCause = cause; r.deathObs = o || r.lastObs;
   r.shake = 1.2;
   if (cause === 'fall') { r.vy = 0; r.shake = 0.4; beep(700, 0.9, 'triangle', 0.08, 90); } else sfx.hit();
-  if (cause === 'caught') { r.vetSay = 'Erwischt!'; r.vetSayT = 3; }
+  if (cause === 'caught') { r.dying = 3.0; r.pikst = false; r.vetSide = undefined; r.vetSay = 'Erwischt!'; r.vetSayT = 1.2; }
 }
 function updateDying(dt) {
   const r = run;
   r.dying -= dt;
-  if (r.deathCause === 'caught') { r.vetGap = lerp(r.vetGap, 0.25, dt * 4); r.vetB = lerp(r.vetB, r.pb, dt * 4); }
+  if (r.deathCause === 'caught') {
+    // Tierarzt holt Timo ein und verpasst ihm die Spritze
+    const t = 3.0 - r.dying;
+    if (r.vetSide === undefined) r.vetSide = r.pb > 0.3 ? -1 : 1;
+    r.vetGap = lerp(r.vetGap, 0.15, dt * 5); r.vetB = lerp(r.vetB, r.pb + r.vetSide * 1.05, dt * 5);
+    if (t > 1.05 && !r.pikst) {
+      r.pikst = true; r.vy = 5; r.shake = 0.5;
+      r.vetSay = 'Piks!'; r.vetSayT = 1.6;
+      beep(1400, 0.08, 'square', 0.06, 2400); setTimeout(() => beep(520, 0.35, 'triangle', 0.07, 260), 90);
+      const [x, z] = segWorld(r.cur, r.pa, r.pb);
+      for (let i = 0; i < 10; i++) r.parts.push({ x: x + rnd(-0.4, 0.4), z: z + rnd(-0.3, 0.3), y: rnd(0.8, 1.4), vx: rnd(-1.5, 1.5), vz: rnd(-0.5, 0.5), vy: rnd(2, 4), t: 1, spr: 'star', s: 0.2 });
+    }
+    if (r.py > 0 || r.vy > 0) { r.vy -= 22 * dt; r.py = Math.max(0, r.py + r.vy * dt); }
+  }
   else if (r.deathCause === 'fall') { r.vy -= 18 * dt; r.py += r.vy * dt; r.pa += dt * 2; r.vetGap = lerp(r.vetGap, 1.4, dt * 2); }
   else { r.vetGap = lerp(r.vetGap, 1.4, dt * 2); if (r.py > 0 || r.vy > 0) { r.vy -= 24 * dt; r.py = Math.max(0, r.py + r.vy * dt); } }
   if (r.dying <= 0) gameOver();
@@ -1168,6 +1181,7 @@ function render() {
       }
     }
   }
+  if (r.dying && r.deathCause === 'caught') drawInjection(r);
   // Sprechblase Tierarzt
   if (r.vetSayT > 0 && r.vetGap < 5) {
     const vp = toCamSeg(r.cur, r.pa - r.vetGap, r.vetB, 1.9);
@@ -1192,12 +1206,56 @@ function render() {
   if (!r.dying && r.pa > s.L - HW - (7 + r.speed * 0.3) && !r.turnQ) arrowHint(s.exits);
   // Turbo-Effekt
   if (r.eff.turbo > 0) {
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    for (let i = 0; i < 14; i++) {
-      const x = (Math.sin(i * 12.9898 + r.time * 3) * 0.5 + 0.5) * W;
-      const y = C.oy + (((i * 0.37 + r.time * 2.5) % 1)) * (H - C.oy);
-      ctx.fillRect(Math.round(x), Math.round(y), 1, 6);
+    // Speed-Lines: strahlen vom Fluchtpunkt nach außen, nur am Bildrand
+    const fade = clamp(r.eff.turbo, 0, 1);
+    ctx.strokeStyle = 'rgba(255,240,210,' + (0.45 * fade) + ')'; ctx.lineWidth = 1;
+    const R = Math.hypot(W, H) * 0.6;
+    ctx.beginPath();
+    for (let i = 0; i < 18; i++) {
+      const ang = i * 2.399 + Math.floor(r.time * 12 + i) * 0.37;
+      const ph = (r.time * 2.2 + i * 0.137) % 1;
+      const r0 = R * (0.55 + ph * 0.45), r1 = r0 + R * 0.18;
+      ctx.moveTo(Math.round(C.ox + Math.cos(ang) * r0), Math.round(C.oy + Math.sin(ang) * r0 * 0.75));
+      ctx.lineTo(Math.round(C.ox + Math.cos(ang) * r1), Math.round(C.oy + Math.sin(ang) * r1 * 0.75));
     }
+    ctx.stroke();
+  }
+}
+function drawInjection(r) {
+  const t = 3.0 - r.dying;
+  if (t < 0.45 || t > 2.1) return;
+  const side = r.vetSide || 1;
+  const tp = toCamSeg(r.cur, r.pa, r.pb + side * 0.18, r.py + 0.8);
+  if (tp[2] <= NEAR) return;
+  const [ex, ey] = proj(tp), sc = focal / tp[2];
+  // Anflug (0.45–1.05), Drücken (1.05–1.6), Rausziehen (1.6–2.3)
+  const inn = t < 1.05 ? (t - 0.45) / 0.6 : t < 1.6 ? 1 : 1 - (t - 1.6) / 0.7;
+  const push = t < 1.05 ? 0 : clamp((t - 1.05) / 0.4, 0, 1);
+  const L = 0.62 * sc, th = Math.max(3, 0.1 * sc);
+  const ang = side > 0 ? -0.4 : Math.PI + 0.4; // Spritze kommt von der Seite des Tierarztes
+  const dist = (1 - inn) * 0.5 * sc;
+  ctx.save();
+  ctx.translate(Math.round(ex + Math.cos(ang) * dist), Math.round(ey + Math.sin(ang) * dist));
+  ctx.rotate(ang); if (side < 0) ctx.scale(1, -1);
+  const P = v => Math.round(v);
+  // Nadel
+  ctx.fillStyle = '#d0d4dc'; ctx.fillRect(0, P(-0.5), P(L * 0.28), Math.max(1, P(th * 0.18)));
+  // Zylinder mit Flüssigkeit
+  const bx = P(L * 0.28), bw = P(L * 0.5);
+  ctx.fillStyle = '#1e1e28'; ctx.fillRect(bx - 1, P(-th / 2) - 1, bw + 2, P(th) + 2);
+  ctx.fillStyle = '#eef6ff'; ctx.fillRect(bx, P(-th / 2), bw, P(th));
+  ctx.fillStyle = '#5ac8ff'; ctx.fillRect(bx, P(-th / 2), P(bw * (1 - push * 0.85)), P(th));
+  // Kolben
+  const kx = bx + bw - P(bw * push * 0.85);
+  ctx.fillStyle = '#1e1e28'; ctx.fillRect(kx, P(-th * 0.22), P(L * 0.3) + 2, Math.max(2, P(th * 0.44)));
+  ctx.fillRect(kx + P(L * 0.3), P(-th * 0.6), Math.max(2, P(th * 0.3)), P(th * 1.2));
+  ctx.fillStyle = '#d84040'; ctx.fillRect(bx + bw, P(-th * 0.75), Math.max(2, P(th * 0.25)), P(th * 1.5));
+  ctx.restore();
+  if (r.pikst && t < 1.9) {
+    ctx.font = '8px "Press Start 2P", monospace'; ctx.textBaseline = 'middle';
+    const tx = Math.round(ex - side * 0.6 * sc - 16), ty = Math.round(ey - 0.25 * sc);
+    ctx.fillStyle = '#000'; ctx.fillText('AUA!', tx + 1, ty + 1);
+    ctx.fillStyle = (Math.floor(t * 10) & 1) ? '#ffd83a' : '#ff8a1f'; ctx.fillText('AUA!', tx, ty);
   }
 }
 function toCamSeg(seg, a, b, y) { const w = segWorld(seg, a, b); return toCam(w[0], y + elev(seg, a), w[1]); }
