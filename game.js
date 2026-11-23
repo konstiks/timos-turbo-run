@@ -359,11 +359,14 @@ function populate(seg, first) {
     if (distSinceFax > rnd(550, 900)) { kind = 'fax'; distSinceFax = 0; distSincePU = 0; }
     else if (distSincePU > rnd(220, 380)) { kind = pick(['magnet', 'magnet', 'shield', 'turbo']); distSincePU = 0; }
     if (kind) {
-      const pa = rnd(start, end);
-      const clear = seg.obs.every(o => Math.abs(o.a0 - pa) > 3);
+      // Stelle suchen, an der kein Loch, keine einseitige Strecke und kein Hindernis ist
+      let pa = start - 4, clear = false;
+      for (let tries = 0; tries < 12 && !clear; tries++) {
+        pa = rnd(start, end);
+        clear = seg.obs.every(o => pa < o.a0 - 3 || pa > (o.a1 || o.a0) + 3);
+      }
       const lane = rint(-1, 1);
-      if (clear) seg.pus.push({ a: pa, b: lane * LANE, y: 0.55, kind });
-      else seg.pus.push({ a: start - 4, b: lane * LANE, y: 0.55, kind });
+      seg.pus.push({ a: clear ? pa : start - 4, b: lane * LANE, y: 0.55, kind });
     }
   }
   // Kroketten nicht in Hindernisse legen
@@ -706,12 +709,13 @@ function die(cause, o) {
   r.dying = 1.6; r.deathCause = cause; r.deathObs = o || r.lastObs;
   r.shake = 1.2;
   if (cause === 'fall') { r.vy = 0; r.shake = 0.4; beep(700, 0.9, 'triangle', 0.08, 90); } else sfx.hit();
-  if (cause === 'caught') { r.dying = 3.0; r.pikst = false; r.vetSide = undefined; r.vetSay = 'Erwischt!'; r.vetSayT = 1.2; }
+  r.inject = cause !== 'fall';
+  if (r.inject) { r.dying = 3.0; r.pikst = false; r.vetSide = undefined; r.vetSay = cause === 'caught' ? 'Erwischt!' : 'Hab ich dich!'; r.vetSayT = 1.2; }
 }
 function updateDying(dt) {
   const r = run;
   r.dying -= dt;
-  if (r.deathCause === 'caught') {
+  if (r.inject) {
     // Tierarzt holt Timo ein und verpasst ihm die Spritze
     const t = 3.0 - r.dying;
     if (r.vetSide === undefined) r.vetSide = r.pb > 0.3 ? -1 : 1;
@@ -1181,7 +1185,7 @@ function render() {
       }
     }
   }
-  if (r.dying && r.deathCause === 'caught') drawInjection(r);
+  if (r.dying && r.inject) drawInjection(r);
   // Sprechblase Tierarzt
   if (r.vetSayT > 0 && r.vetGap < 5) {
     const vp = toCamSeg(r.cur, r.pa - r.vetGap, r.vetB, 1.9);
