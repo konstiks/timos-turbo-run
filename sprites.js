@@ -312,7 +312,21 @@ function buildSprites() {
   SPR.kk = makeSprite(kroketteRows, PAL_KK);
   SPR.magnet = makeSprite(magnetFull, PAL_PU);
   SPR.shield = makeSprite(shieldRows, PAL_PU);
-  SPR.turbo = makeSprite(turboRows, PAL_PU);
+  SPR.turbo = makeSprite([
+    '...t..t.....',
+    '..t..t......',
+    '...t..t.....',
+    '..t..t......',
+    'ooooooooo...',
+    'occchcccoooo',
+    'owwwwwwwo..o',
+    'owwwwwwwo..o',
+    'owwwwwwwoooo',
+    '.owwwwwo....',
+    'oooooooooooo',
+    'ogggggggggo.',
+    '.oooooooooo.',
+  ], { o: '#2a1a12', w: '#ffffff', c: '#6b3a1a', h: '#a0643a', g: '#d8d8e0', t: '#e8e8f0' });
   SPR.fax = makeSprite(faxRows, PAL_PU);
   SPR.tree = makeSprite(treeRows, PAL_DECO);
   SPR.lamp = makeSprite(lampRows, PAL_DECO);

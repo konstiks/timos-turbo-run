@@ -38,7 +38,7 @@ const THEMES = [
 const PU_INFO = {
   magnet: { name: 'Magnet', base: 6, per: 2 },
   shield: { name: 'Schild', base: 8, per: 2.5 },
-  turbo: { name: 'Turbo-Leckerli', base: 3, per: 0.8 },
+  turbo: { name: 'Espresso-Turbo', base: 3, per: 0.8 },
   fax: { name: 'Faxmaschine', base: 6, per: 1.5 },
 };
 function puDur(k) { return PU_INFO[k].base + PU_INFO[k].per * save.up[k]; }
@@ -1404,7 +1404,7 @@ function fillBest(el) {
 const SHOP = [
   { id: 'magnet', type: 'up', title: 'Magnet', desc: k => 'Dauer: ' + puDur(k) + ' s' },
   { id: 'shield', type: 'up', title: 'Schild', desc: k => 'Dauer: ' + puDur(k) + ' s' },
-  { id: 'turbo', type: 'up', title: 'Turbo-Leckerli', desc: k => 'Dauer: ' + puDur(k).toFixed(1) + ' s' },
+  { id: 'turbo', type: 'up', title: 'Espresso-Turbo', desc: k => 'Dauer: ' + puDur(k).toFixed(1) + ' s' },
   { id: 'fax', type: 'up', title: 'Faxmaschine', desc: k => 'Dauer: ' + puDur(k) + ' s' },
   { id: 'startShield', spr: 'shield', type: 'inv', title: 'Start-Schild', price: 60, desc: () => 'Nächster Lauf startet mit Schild' },
   { id: 'startTurbo', spr: 'turbo', type: 'inv', title: 'Turbo-Start', price: 120, desc: () => 'Nächster Lauf startet mit 6 s Turbo' },
@@ -1488,12 +1488,25 @@ window.addEventListener('deviceorientation', e => {
   let v = (ang === 90) ? e.beta : (ang === 270 || ang === -90) ? -e.beta : e.gamma;
   if (v == null) return;
   tilt.seen = true;
-  if (tilt.base === null) { tilt.base = v; return; }
-  const d = v - tilt.base;
-  if (run.onSlide) { const want = d < -9 ? -1 : d > 9 ? 1 : 0; if (want !== run.lane) run.lane = want; tilt.armed = Math.abs(d) < 7; return; }
-  if (tilt.armed && Math.abs(d) > 15) { tilt.armed = false; onInput(d > 0 ? 'right' : 'left', true); }
-  else if (!tilt.armed && Math.abs(d) < 7) tilt.armed = true;
-  if (tilt.armed && Math.abs(d) < 7) tilt.base = lerp(tilt.base, v, 0.02); // langsam nachkalibrieren
+  if (tilt.base === null) { tilt.base = v; tilt.ds = 0; tilt.steps = 0; tilt.dir = 0; return; }
+  // geglättet, damit kleines Zittern nichts auslöst
+  tilt.ds = lerp(tilt.ds || 0, v - tilt.base, 0.4);
+  const d = tilt.ds, ad = Math.abs(d), dir = d > 0 ? 1 : -1, now = performance.now();
+  if (ad < 6) { // zurück in der Mitte: wieder bereit, langsam nachkalibrieren
+    tilt.steps = 0; tilt.dir = 0;
+    tilt.base = lerp(tilt.base, v, 0.03);
+    return;
+  }
+  if (tilt.dir !== 0 && dir !== tilt.dir) { tilt.steps = 0; tilt.dir = 0; } // direkt auf die andere Seite gekippt
+  // 1. Schritt ab 11°, 2. Schritt ab 22° oder wenn man gekippt hält
+  const want = ad > 22 ? 2 : ad > 11 ? 1 : 0;
+  const hold = tilt.steps === 1 && ad > 11 && now - tilt.t > 380;
+  if (want > tilt.steps || hold) {
+    if (tilt.steps < 2 && (tilt.steps === 0 || now - tilt.t > 120)) {
+      tilt.steps++; tilt.dir = dir; tilt.t = now;
+      onInput(dir > 0 ? 'right' : 'left', true);
+    }
+  }
 });
 
 // ---------- Timo bellt ----------
