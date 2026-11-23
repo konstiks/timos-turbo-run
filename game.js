@@ -235,13 +235,17 @@ function levelAt(dist) {
   return i;
 }
 
+// Jede Runde (Park → Amt → Sofa) wird ein Hauch schneller und schwieriger
+function roundOf(dist) { return Math.floor(levelAt(dist) / 3); }
+function roundMul(dist) { return 1 + Math.min(0.5, 0.07 * roundOf(dist)); }
+function segSpeed(d) { return (9 + 12 * (1 - Math.exp(-d / 1800))) * roundMul(d); }
 function makeSeg(sx, sz, dirIdx, startDist, opts) {
   opts = opts || {};
   const d = DIRS[dirIdx], r = DIRS[(dirIdx + 1) % 4];
   const level = levelAt(startDist);
   const seg = {
     sx, sz, dirIdx, dx: d[0], dz: d[1], rx: r[0], rz: r[1],
-    L: opts.L || rint(48, 90), startDist, level, theme: THEMES[level % 3],
+    L: opts.L || Math.round(rint(48, 90) * clamp(segSpeed(startDist) / 15, 1, 2)), startDist, level, theme: THEMES[level % 3],
     exits: opts.exits || pick(['L', 'R', 'L', 'R', 'T']),
     obs: [], coins: [], pus: [], deco: [], gate: false, next: null, y0: opts.y0 || 0, hills: [],
   };
@@ -283,14 +287,15 @@ const HANG_SOFA = ['SALE -70%', 'SOFAS SOFAS SOFAS', 'NUR HEUTE!', 'PROBESITZEN 
 function populate(seg, first) {
   const T = seg.theme, ob = OB[T.key];
   // Nach einer Kurve erst mal Ruhe, damit man reagieren kann (ca. 1,8 s Laufzeit)
-  const expSpeed = 9 + 12 * (1 - Math.exp(-seg.startDist / 1800));
-  const start = first ? 30 : Math.max(seg.gate ? 18 : 14, expSpeed * 1.8);
+  const rnd_ = roundOf(seg.startDist);
+  const expSpeed = (9 + 12 * (1 - Math.exp(-seg.startDist / 1800))) * roundMul(seg.startDist);
+  const start = first ? 30 : Math.max(seg.gate ? 18 : 14, expSpeed * 1.6);
   const end = seg.L - HW - Math.max(10, expSpeed * 0.9);
   const diff = clamp(seg.startDist / 2500, 0, 1);
   let a = start;
   while (a < end) {
     const r = Math.random();
-    const gapAfter = Math.max(expSpeed * 1.3, lerp(18, 11, diff)) + rnd(0, 7);
+    const gapAfter = Math.max(expSpeed * Math.max(1.0, 1.2 - 0.05 * rnd_), lerp(16, 10, diff)) + rnd(0, Math.max(2, 6 - rnd_));
     if (!first && r >= 0.42 && r < 0.53 && a + 14 < end) { // Kipp-Abschnitt: Boden nur auf einer Seite
       const s1 = pick([-1, 1]), len = 11;
       seg.obs.push({ type: 'narrow', a0: a, a1: a + len, side: s1 });
@@ -300,7 +305,7 @@ function populate(seg, first) {
       continue;
     }
     if (!first && r >= 0.53 && r < 0.64) { // Loch / Schlucht -> springen
-      const len = lerp(1.8, 2.6, diff);
+      const len = lerp(1.8, 2.6, diff) + Math.min(0.6, 0.1 * rnd_);
       seg.obs.push({ type: 'gap', a0: a, a1: a + len });
       coinArc(seg, a + len / 2, rint(-1, 1));
       a += gapAfter;
@@ -339,7 +344,7 @@ function populate(seg, first) {
       coinLine(seg, a - 3, rint(-1, 1), 4, 0.35);
     } else if (r < 0.82) { // Spur blockiert
       const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
-      const n = Math.random() < lerp(0.06, 0.35, diff) ? 2 : 1;
+      const n = Math.random() < Math.min(0.55, lerp(0.06, 0.35, diff) + 0.05 * rnd_) ? 2 : 1;
       for (let i = 0; i < n; i++) {
         const o = pick(ob.block);
         const w = o.w || 1.05;
@@ -549,7 +554,7 @@ function update(dt) {
   if (r.onSlide && r.py <= 0.02) r.slideT = Math.max(r.slideT, 0.12);
 
   // Tempo
-  const base = (r.tut && r.tutStep < TUT.length) ? 8 : 9 + 12 * (1 - Math.exp(-r.dist / 1800));
+  const base = (r.tut && r.tutStep < TUT.length) ? 8 : (9 + 12 * (1 - Math.exp(-r.dist / 1800))) * roundMul(r.dist);
   r.speed = base * (r.eff.turbo > 0 ? 1.75 : 1) * (r.slowT > 0 ? 0.7 : 1) * (r.onSlide ? 1.2 : 1);
   if (r.slowT > 0) r.slowT -= dt;
   const step = r.speed * dt;
