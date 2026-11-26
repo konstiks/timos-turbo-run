@@ -278,7 +278,8 @@ const OB = { // Hindernis-Arten pro Thema
     low: { name: 'Kissenberg', h: 0.6, c: [240, 200, 80], top: [250, 230, 140], kind: 'pillows' },
     high: { name: 'Teppichrolle', y0: 0.95, c: [150, 60, 120], top: [190, 90, 150], kind: 'rug' },
     block: [{ name: 'Sofa', h: 1.05, c: [20, 160, 170], top: [60, 200, 205], kind: 'sofa', w: 1.1 },
-            { name: 'Sessel', h: 1.0, c: [220, 40, 100], top: [245, 90, 140], kind: 'sofa', w: 0.95 }],
+            { name: 'Sessel', h: 1.0, c: [220, 40, 100], top: [245, 90, 140], kind: 'sofa', w: 0.95 },
+            { name: 'Ledersessel', h: 1.05, c: [150, 70, 30], top: [190, 100, 50], kind: 'armchair', w: 1.0 }],
   },
 };
 
@@ -1094,6 +1095,9 @@ function obstacle(seg, o) {
     } else if (d.kind === 'tree') {
       box(seg, o.a0 + 0.3, o.a0 + 0.55, o.b - 0.13, o.b + 0.13, 0, 0.9, d.c, d.top, objQ);
       sprite(seg, o.a0 + 0.42, o.b, 0, 2.5, SPR.tree, objQ, { bias: -0.1 });
+    } else if (d.kind === 'armchair') {
+      if (SPR.sessel) sprite(seg, o.a0 + 0.4, o.b, 0, 1.3, SPR.sessel, objQ, { bias: -0.1 });
+      else box(seg, o.a0, o.a1, o.b - 0.5, o.b + 0.5, 0, o.h, d.c, d.top, objQ);
     } else if (d.kind === 'hydrant') {
       if (SPR.hydrant) sprite(seg, o.a0 + 0.4, o.b, 0, 1.1, SPR.hydrant, objQ, { bias: -0.1 });
       else box(seg, o.a0 + 0.2, o.a1 - 0.2, o.b - 0.3, o.b + 0.3, 0, o.h, d.c, d.top, objQ);
@@ -1619,7 +1623,7 @@ function buildVetFrames(img) {
     const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
     g.drawImage(img, 0, legY, mid, h - legY, 0, legY + pad - lo, mid, h - legY);
     g.drawImage(img, mid, legY, w - mid, h - legY, mid, legY + pad - ro, w - mid, h - legY);
-    g.drawImage(img, 0, 0, w, legY, 0, pad - Math.round(k), w, legY);
+    g.drawImage(img, 0, 0, w, legY, 0, pad, w, legY);
     c.smooth = true;
     return c;
   };
@@ -1630,10 +1634,11 @@ function init() {
   buildSprites();
   const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=7';
   const li = new Image(); li.onload = () => { SPR.lamp = li; }; li.src = 'assets/laterne.png?v=1';
+  const se = new Image(); se.onload = () => { SPR.sessel = se; }; se.src = 'assets/sessel.png?v=1';
   const hy = new Image(); hy.onload = () => { SPR.hydrant = hy; }; hy.src = 'assets/hydrant.png?v=1';
   const di = new Image(); di.onload = () => { SPR.timoDuck = di; }; di.src = 'assets/timo-ducken.png?v=8';
   const si = new Image(); si.onload = () => { SPR.timoSlide = si; }; si.src = 'assets/timo-slide.png?v=8';
-  const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=9';
+  const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=10';
   const icoURL = (() => { const c = document.createElement('canvas'); c.width = SPR.kk.width * 2; c.height = SPR.kk.height * 2; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(SPR.kk, 0, 0, c.width, c.height); return c.toDataURL(); })();
   const st = document.createElement('style'); st.textContent = '.kk-ico{background-image:url(' + icoURL + ')!important}'; document.head.appendChild(st);
   paintCanvases(document);
