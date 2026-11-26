@@ -49,7 +49,7 @@ const ctx = cv.getContext('2d');
 let W = 320, H = 240, focal = 200, horizon = 90;
 function resize() {
   const sw = window.innerWidth, sh = window.innerHeight;
-  const short = Math.min(sw, sh), target = 230;
+  const short = Math.min(sw, sh), target = 300;
   const k = target / short;
   W = Math.round(sw * k); H = Math.round(sh * k);
   cv.width = W; cv.height = H;
@@ -842,6 +842,7 @@ function spriteW(x, z, y, h, img, list, opts, fog) {
 function drawSprite(s) {
   ctx.save();
   if (s.alpha !== undefined) ctx.globalAlpha = s.alpha;
+  if (s.img.smooth) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
   if (s.flip) { ctx.translate(Math.round(s.x + s.w), Math.round(s.y)); ctx.scale(-1, 1); ctx.drawImage(s.img, 0, 0, Math.round(s.w), Math.round(s.h)); }
   else ctx.drawImage(s.img, Math.round(s.x), Math.round(s.y), Math.max(1, Math.round(s.w)), Math.max(1, Math.round(s.h)));
   ctx.restore();
@@ -1611,13 +1612,15 @@ function buildTimoFrames(img) {
   SPR.timoReal = true;
 }
 function buildVetFrames(img) {
-  const w = img.width, h = img.height, legY = Math.round(h * 0.74), mid = Math.round(w * 0.45);
+  const w = img.width, h = img.height, legY = Math.round(h * 0.74), mid = Math.round(w * 0.45), k = h / 84, pad = Math.round(4 * k);
   const mk = (lo, ro) => {
-    const c = document.createElement('canvas'); c.width = w; c.height = h + 4;
+    lo = Math.round(lo * k); ro = Math.round(ro * k);
+    const c = document.createElement('canvas'); c.width = w; c.height = h + pad;
     const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
-    g.drawImage(img, 0, legY, mid, h - legY, 0, legY + 4 - lo, mid, h - legY);
-    g.drawImage(img, mid, legY, w - mid, h - legY, mid, legY + 4 - ro, w - mid, h - legY);
-    g.drawImage(img, 0, 0, w, legY, 0, 4 - 1, w, legY);
+    g.drawImage(img, 0, legY, mid, h - legY, 0, legY + pad - lo, mid, h - legY);
+    g.drawImage(img, mid, legY, w - mid, h - legY, mid, legY + pad - ro, w - mid, h - legY);
+    g.drawImage(img, 0, 0, w, legY, 0, pad - Math.round(k), w, legY);
+    c.smooth = true;
     return c;
   };
   SPR.vetA = mk(5, 0); SPR.vetB = mk(0, 5); SPR.vetReal = true;
@@ -1630,7 +1633,7 @@ function init() {
   const hy = new Image(); hy.onload = () => { SPR.hydrant = hy; }; hy.src = 'assets/hydrant.png?v=1';
   const di = new Image(); di.onload = () => { SPR.timoDuck = di; }; di.src = 'assets/timo-ducken.png?v=8';
   const si = new Image(); si.onload = () => { SPR.timoSlide = si; }; si.src = 'assets/timo-slide.png?v=8';
-  const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=7';
+  const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=9';
   const icoURL = (() => { const c = document.createElement('canvas'); c.width = SPR.kk.width * 2; c.height = SPR.kk.height * 2; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(SPR.kk, 0, 0, c.width, c.height); return c.toDataURL(); })();
   const st = document.createElement('style'); st.textContent = '.kk-ico{background-image:url(' + icoURL + ')!important}'; document.head.appendChild(st);
   paintCanvases(document);
