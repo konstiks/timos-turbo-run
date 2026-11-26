@@ -260,8 +260,10 @@ const SOFA_PRICES = ['199€', '299€', '499€', '99€', '1.299€', '799€'
 const OB = { // Hindernis-Arten pro Thema
   park: {
     low: { name: 'Hecke', h: 0.62, c: [70, 150, 60], top: [110, 190, 90], kind: 'hedge' },
-    high: { name: 'Rosenbogen', y0: 0.95, c: [120, 80, 40], top: [200, 90, 120], kind: 'arch' },
-    block: [{ name: 'Parkbank', h: 0.7, c: [150, 96, 50], top: [180, 120, 66], kind: 'bench' },
+    high: { name: 'Rosenbogen', y0: 0.95, c: [120, 80, 40], top: [200, 90, 120], kind: 'arch' }, // nur noch im Tutorial
+    hydrant: { name: 'Hydrant', h: 0.95, c: [210, 40, 30], top: [240, 80, 60], kind: 'hydrant', w: 0.8 },
+    block: [{ name: 'Hydrant', h: 0.95, c: [210, 40, 30], top: [240, 80, 60], kind: 'hydrant', w: 0.8 },
+            { name: 'Parkbank', h: 0.7, c: [150, 96, 50], top: [180, 120, 66], kind: 'bench' },
             { name: 'Mülleimer', h: 1.25, c: [60, 120, 70], top: [40, 80, 50], kind: 'bin', w: 0.8 },
             { name: 'Baum', h: 9, c: [110, 70, 36], top: [90, 56, 30], kind: 'tree', w: 0.95 },
             { name: 'Baum', h: 9, c: [110, 70, 36], top: [90, 56, 30], kind: 'tree', w: 0.95 },
@@ -338,6 +340,11 @@ function populate(seg, first) {
       const o = ob.low;
       seg.obs.push({ type: 'low', a0: a, a1: a + 0.7, h: o.h, def: o });
       coinArc(seg, a + 0.35, rint(-1, 1));
+    } else if (r < 0.40 && ob.hydrant) { // Park: Feuerhydranten statt Rosenbogen
+      const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
+      const n = Math.random() < 0.5 ? 2 : 1;
+      for (let i = 0; i < n; i++) seg.obs.push({ type: 'block', a0: a, a1: a + 0.8, lane: lanes[i], b: lanes[i] * LANE, w: ob.hydrant.w, h: ob.hydrant.h, def: ob.hydrant });
+      coinLine(seg, a - 6, lanes[2], 8, 0.45);
     } else if (r < 0.40) { // hohes Hindernis -> rutschen
       const o = ob.high;
       seg.obs.push({ type: 'high', a0: a, a1: a + 0.5, y0: o.y0, def: o });
@@ -410,7 +417,7 @@ function decorate(seg) {
       for (let a = HW + 2.5 + rnd(0, 3); a < tEnd; a += rnd(4, 9)) {
         seg.deco.push({ spr: 'tree', a, b: s * rnd(HW + 2, HW + 7), h: rnd(2.3, 3.2) });
       }
-      for (let a = from; a < to; a += rnd(9, 15)) seg.deco.push({ spr: 'lamp', a, b: s * (HW + 0.7), h: 2.3 });
+      for (let a = from; a < to; a += rnd(9, 15)) seg.deco.push({ spr: 'lamp', a, b: s * (HW + 0.7), h: 2.6 });
       for (let a = HW + 1 + rnd(0, 3); a < seg.L - HW - 1; a += rnd(2, 5)) seg.deco.push({ spr: 'flower', a, b: s * rnd(HW + 0.6, HW + 2), h: 0.35 });
     }
   } else {
@@ -1092,6 +1099,9 @@ function obstacle(seg, o) {
     } else if (d.kind === 'tree') {
       box(seg, o.a0 + 0.3, o.a0 + 0.55, o.b - 0.13, o.b + 0.13, 0, 0.9, d.c, d.top, objQ);
       sprite(seg, o.a0 + 0.42, o.b, 0, 2.5, SPR.tree, objQ, { bias: -0.1 });
+    } else if (d.kind === 'hydrant') {
+      if (SPR.hydrant) sprite(seg, o.a0 + 0.4, o.b, 0, 1.1, SPR.hydrant, objQ, { bias: -0.1 });
+      else box(seg, o.a0 + 0.2, o.a1 - 0.2, o.b - 0.3, o.b + 0.3, 0, o.h, d.c, d.top, objQ);
     } else if (d.kind === 'bin') {
       box(seg, o.a0 + 0.15, o.a1 - 0.15, b0 + 0.1, b1 - 0.1, 0, o.h, d.c, d.top, objQ);
       box(seg, o.a0 + 0.1, o.a1 - 0.1, b0 + 0.05, b1 - 0.05, o.h - 0.15, o.h, [80, 160, 90], [40, 70, 45], objQ);
@@ -1622,6 +1632,8 @@ function buildVetFrames(img) {
 function init() {
   buildSprites();
   const ti = new Image(); ti.onload = () => buildTimoFrames(ti); ti.src = 'assets/timo-hinten.png?v=7';
+  const li = new Image(); li.onload = () => { SPR.lamp = li; }; li.src = 'assets/laterne.png?v=1';
+  const hy = new Image(); hy.onload = () => { SPR.hydrant = hy; }; hy.src = 'assets/hydrant.png?v=1';
   const di = new Image(); di.onload = () => { SPR.timoDuck = di; }; di.src = 'assets/timo-ducken.png?v=8';
   const si = new Image(); si.onload = () => { SPR.timoSlide = si; }; si.src = 'assets/timo-slide.png?v=8';
   const vi = new Image(); vi.onload = () => buildVetFrames(vi); vi.src = 'assets/tierarzt-hinten.png?v=7';
