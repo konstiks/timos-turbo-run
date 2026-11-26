@@ -260,11 +260,10 @@ const SOFA_PRICES = ['199€', '299€', '499€', '99€', '1.299€', '799€'
 const OB = { // Hindernis-Arten pro Thema
   park: {
     low: { name: 'Hecke', h: 0.62, c: [70, 150, 60], top: [110, 190, 90], kind: 'hedge' },
-    high: { name: 'Rosenbogen', y0: 0.95, c: [120, 80, 40], top: [200, 90, 120], kind: 'arch' }, // nur noch im Tutorial
+    high: { name: 'Rosenbogen', y0: 0.95, c: [120, 80, 40], top: [200, 90, 120], kind: 'arch' },
     hydrant: { name: 'Hydrant', h: 0.95, c: [210, 40, 30], top: [240, 80, 60], kind: 'hydrant', w: 0.8 },
-    block: [{ name: 'Hydrant', h: 0.95, c: [210, 40, 30], top: [240, 80, 60], kind: 'hydrant', w: 0.8 },
-            { name: 'Parkbank', h: 0.7, c: [150, 96, 50], top: [180, 120, 66], kind: 'bench' },
-            { name: 'Mülleimer', h: 1.25, c: [60, 120, 70], top: [40, 80, 50], kind: 'bin', w: 0.8 },
+    block: [{ name: 'Parkbank', h: 0.7, c: [150, 96, 50], top: [180, 120, 66], kind: 'bench' },
+            { name: 'Hydrant', h: 0.95, c: [210, 40, 30], top: [240, 80, 60], kind: 'hydrant', w: 0.8 },
             { name: 'Baum', h: 9, c: [110, 70, 36], top: [90, 56, 30], kind: 'tree', w: 0.95 },
             { name: 'Baum', h: 9, c: [110, 70, 36], top: [90, 56, 30], kind: 'tree', w: 0.95 },
             { name: 'Baum', h: 9, c: [110, 70, 36], top: [90, 56, 30], kind: 'tree', w: 0.95 }],
@@ -340,11 +339,6 @@ function populate(seg, first) {
       const o = ob.low;
       seg.obs.push({ type: 'low', a0: a, a1: a + 0.7, h: o.h, def: o });
       coinArc(seg, a + 0.35, rint(-1, 1));
-    } else if (r < 0.40 && ob.hydrant) { // Park: Feuerhydranten statt Rosenbogen
-      const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
-      const n = Math.random() < 0.5 ? 2 : 1;
-      for (let i = 0; i < n; i++) seg.obs.push({ type: 'block', a0: a, a1: a + 0.8, lane: lanes[i], b: lanes[i] * LANE, w: ob.hydrant.w, h: ob.hydrant.h, def: ob.hydrant });
-      coinLine(seg, a - 6, lanes[2], 8, 0.45);
     } else if (r < 0.40) { // hohes Hindernis -> rutschen
       const o = ob.high;
       seg.obs.push({ type: 'high', a0: a, a1: a + 0.5, y0: o.y0, def: o });
