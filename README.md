@@ -20,3 +20,13 @@ Reines HTML5/JavaScript, kein Build nötig: `index.html` im Browser öffnen.
 Läuft über dasselbe Supabase-Projekt wie Schnitzis Shake Bar, aber in einer eigenen Tabelle `ttr_scores`.
 Die Tabelle und Zugriffsregeln stehen in `supabase.sql` (einmal im Supabase-Dashboard unter "SQL Editor" ausführen).
 Ohne Verbindung oder ohne Tabelle nutzt das Spiel eine Liste auf dem eigenen Gerät.
+
+## iPhone-App (iOS)
+
+Im Ordner `ios/` liegt ein kleines Xcode-Projekt, das das Spiel als echte App verpackt (WKWebView, kein Node/npm nötig).
+Beim Bauen werden `index.html`, `game.js`, `sprites.js`, `style.css` und `assets/` automatisch ins App-Bundle kopiert, das Spiel läuft also komplett offline.
+Spielstand und lokale Bestenliste liegen wie im Browser im `localStorage`, die Online-Bestenliste läuft weiter über Supabase.
+
+- `ios/TimosTurboRun.xcodeproj` in Xcode öffnen, oben das iPhone auswählen, ▶︎ drücken.
+- Bundle-ID `de.konsti.timosturborun`, Team `Y256T3J63G`, automatisches Signing.
+- Nach Änderungen am Spiel einfach in Xcode neu bauen.
